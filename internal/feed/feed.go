@@ -12,6 +12,7 @@ import (
 	"net/http"
 	"net/url"
 	"sort"
+	"strconv"
 	"strings"
 	"time"
 )
@@ -29,6 +30,7 @@ type Item struct {
 	Published  time.Time
 	Summary    string
 	Section    string
+	Subsection string // editoria mais específica, ex. "Brasileirão" em Esportes
 	Categories []string
 	HTML       string // conteúdo de content:encoded
 }
@@ -51,8 +53,9 @@ type rss struct {
 }
 
 // Fetch busca `pages` páginas do feed (60 itens cada) e devolve os itens
-// deduplicados por link, do mais recente para o mais antigo.
-func Fetch(ctx context.Context, client *http.Client, pages int) ([]Item, error) {
+// deduplicados por link, do mais recente para o mais antigo. Com cat > 0 o feed
+// vem filtrado por categoria.
+func Fetch(ctx context.Context, client *http.Client, cat, pages int) ([]Item, error) {
 	if pages < 1 {
 		pages = 1
 	}
@@ -61,7 +64,7 @@ func Fetch(ctx context.Context, client *http.Client, pages int) ([]Item, error) 
 	var all []Item
 
 	for page := 1; page <= pages; page++ {
-		items, err := fetchPage(ctx, client, page)
+		items, err := fetchPage(ctx, client, cat, page)
 		if err != nil {
 			// Uma página posterior que falha não invalida o que já veio.
 			if len(all) > 0 {
@@ -84,10 +87,17 @@ func Fetch(ctx context.Context, client *http.Client, pages int) ([]Item, error) 
 	return all, nil
 }
 
-func fetchPage(ctx context.Context, client *http.Client, page int) ([]Item, error) {
-	u := FeedURL
+func fetchPage(ctx context.Context, client *http.Client, cat, page int) ([]Item, error) {
+	q := url.Values{}
+	if cat > 0 {
+		q.Set("cat", strconv.Itoa(cat))
+	}
 	if page > 1 {
-		u = fmt.Sprintf("%s?paged=%d", FeedURL, page)
+		q.Set("paged", strconv.Itoa(page))
+	}
+	u := FeedURL
+	if len(q) > 0 {
+		u += "?" + q.Encode()
 	}
 
 	req, err := http.NewRequestWithContext(ctx, http.MethodGet, u, nil)
@@ -122,6 +132,7 @@ func Parse(r io.Reader) ([]Item, error) {
 		if link == "" {
 			continue
 		}
+		cats := cleanCategories(raw.Categories)
 		items = append(items, Item{
 			Title:      strings.TrimSpace(raw.Title),
 			Link:       link,
@@ -129,7 +140,8 @@ func Parse(r io.Reader) ([]Item, error) {
 			Published:  parseDate(raw.PubDate),
 			Summary:    strings.TrimSpace(raw.Description),
 			Section:    SectionOf(link),
-			Categories: cleanCategories(raw.Categories),
+			Subsection: subsectionOf(link, cats),
+			Categories: cats,
 			HTML:       raw.Content,
 		})
 	}
@@ -159,6 +171,59 @@ func cleanCategories(in []string) []string {
 	return out
 }
 
+// subsectionOf devolve a editoria mais específica da matéria. O segundo
+// segmento da URL (/esportes/brasileirao/...) dá o slug; o nome bonito, com
+// acentos, vem da <category> correspondente — a ordem das categorias no feed é
+// alfabética, então pegar a primeira daria "Vitória (time)" em vez de
+// "Brasileirão".
+func subsectionOf(link string, cats []string) string {
+	u, err := url.Parse(link)
+	if err != nil {
+		return ""
+	}
+	parts := strings.Split(strings.Trim(u.Path, "/"), "/")
+	if len(parts) < 2 || parts[1] == "" {
+		return ""
+	}
+	slug := parts[1]
+
+	for _, c := range cats {
+		if slugify(c) == slug {
+			return c
+		}
+	}
+	return strings.ToUpper(slug[:1]) + strings.ReplaceAll(slug[1:], "-", " ")
+}
+
+// slugify aproxima a transformação que o WordPress faz no nome da categoria:
+// minúsculas, sem acentos, espaços viram hífen.
+func slugify(s string) string {
+	var b strings.Builder
+	for _, r := range strings.ToLower(s) {
+		switch {
+		case r >= 'a' && r <= 'z', r >= '0' && r <= '9':
+			b.WriteRune(r)
+		case r == ' ', r == '-', r == '_':
+			b.WriteRune('-')
+		default:
+			if folded, ok := accentFolding[r]; ok {
+				b.WriteRune(folded)
+			}
+			// Pontuação e parênteses somem, como no WordPress.
+		}
+	}
+	return strings.Trim(b.String(), "-")
+}
+
+var accentFolding = map[rune]rune{
+	'á': 'a', 'à': 'a', 'ã': 'a', 'â': 'a', 'ä': 'a',
+	'é': 'e', 'ê': 'e', 'è': 'e', 'ë': 'e',
+	'í': 'i', 'î': 'i', 'ì': 'i', 'ï': 'i',
+	'ó': 'o', 'õ': 'o', 'ô': 'o', 'ò': 'o', 'ö': 'o',
+	'ú': 'u', 'û': 'u', 'ù': 'u', 'ü': 'u',
+	'ç': 'c', 'ñ': 'n',
+}
+
 // sectionLabels traduz o primeiro segmento da URL para um rótulo de seção.
 var sectionLabels = map[string]string{
 	"nacional":           "Nacional",
@@ -177,9 +242,9 @@ var sectionLabels = map[string]string{
 	"noticias":           "Notícias",
 }
 
-// SectionOf extrai a seção a partir do caminho da URL da matéria. Os feeds por
-// categoria da CNN caem silenciosamente no feed geral quando o slug não existe,
-// então derivar da URL é mais confiável do que confiar em <category>.
+// SectionOf extrai a seção a partir do caminho da URL da matéria — o rótulo
+// mostrado em cada item da lista. É mais confiável que <category>, que traz
+// dezenas de tags por matéria ("Corinthians", "-agencia-cnn-", …).
 func SectionOf(link string) string {
 	u, err := url.Parse(link)
 	if err != nil {

@@ -25,6 +25,9 @@ var (
 	errStyle      = lipgloss.NewStyle().Bold(true).Foreground(render.Red)
 	okStyle       = lipgloss.NewStyle().Foreground(render.Accent)
 	dividerStyle  = lipgloss.NewStyle().Foreground(render.Faint)
+	tabActive     = lipgloss.NewStyle().Bold(true).Foreground(render.Red)
+	tabIdle       = lipgloss.NewStyle().Foreground(render.Muted)
+	tabPending    = lipgloss.NewStyle().Foreground(render.Faint)
 	helpBoxStyle  = lipgloss.NewStyle().
 			Border(lipgloss.RoundedBorder()).
 			BorderForeground(render.Red).
@@ -39,10 +42,14 @@ func (m Model) View() string {
 		return m.viewHelp()
 	}
 
+	t := m.tabs[m.active]
+
 	var body string
 	switch {
-	case m.loading && len(m.items) == 0:
-		body = m.centered("buscando as manchetes da CNN Brasil…")
+	case t.loading && len(t.items) == 0:
+		body = m.centered("buscando " + t.section.Name + "…")
+	case t.err != nil && len(t.items) == 0:
+		body = m.centered("não consegui carregar " + t.section.Name + " — r tenta de novo")
 	case m.mode == modeReader:
 		body = m.reader.View()
 	default:
@@ -59,20 +66,22 @@ func (m Model) View() string {
 func (m Model) viewHeader() string {
 	left := brandStyle.Render("CNN Brasil")
 
+	t := m.tabs[m.active]
+
 	var meta []string
 	if m.mode == modeReader {
-		meta = append(meta, fmt.Sprintf("%d/%d", m.cursor+1, len(m.view)))
+		meta = append(meta, fmt.Sprintf("%d/%d", t.cursor+1, len(t.view)))
 	} else {
-		meta = append(meta, plural(len(m.view), "matéria", "matérias"))
+		meta = append(meta, plural(len(t.view), "matéria", "matérias"))
 	}
 	if m.onlySaved {
 		meta = append(meta, "★ favoritos")
 	}
-	if m.loading {
+	if t.loading {
 		meta = append(meta, "atualizando…")
-	} else if !m.fetchedAt.IsZero() {
-		label := "atualizado " + relativeTime(m.fetchedAt)
-		if m.fromCache {
+	} else if !t.fetchedAt.IsZero() {
+		label := "atualizado " + relativeTime(t.fetchedAt)
+		if t.fromCache {
 			label += " (cache)"
 		}
 		meta = append(meta, label)
@@ -85,26 +94,84 @@ func (m Model) viewHeader() string {
 	}
 
 	return left + strings.Repeat(" ", gap) + right + "\n" +
+		m.viewTabs() + "\n" +
 		dividerStyle.Render(strings.Repeat("─", m.width))
+}
+
+// viewTabs desenha a barra de seções, deslizando a janela visível quando as
+// abas não cabem na largura do terminal.
+func (m Model) viewTabs() string {
+	labels := make([]string, len(m.tabs))
+	for i, t := range m.tabs {
+		name := t.section.Name
+		switch {
+		case i == m.active:
+			labels[i] = tabActive.Render("▌" + name)
+		case t.loading:
+			labels[i] = tabPending.Render(" " + name + "…")
+		case t.loaded:
+			labels[i] = tabIdle.Render(" " + name)
+		default:
+			labels[i] = tabPending.Render(" " + name)
+		}
+	}
+
+	const sep = "  "
+	width := func(i int) int { return lipgloss.Width(labels[i]) }
+
+	// Reserva espaço para as setas de continuação nas duas pontas.
+	avail := m.width - 4
+	if avail < 1 {
+		avail = 1
+	}
+
+	start, end := m.active, m.active
+	total := width(m.active)
+	for {
+		grew := false
+		if end+1 < len(labels) && total+len(sep)+width(end+1) <= avail {
+			end++
+			total += len(sep) + width(end)
+			grew = true
+		}
+		if start-1 >= 0 && total+len(sep)+width(start-1) <= avail {
+			start--
+			total += len(sep) + width(start)
+			grew = true
+		}
+		if !grew {
+			break
+		}
+	}
+
+	bar := strings.Join(labels[start:end+1], sep)
+	if start > 0 {
+		bar = tabPending.Render("‹") + bar
+	}
+	if end < len(labels)-1 {
+		bar += tabPending.Render(" ›")
+	}
+	return bar
 }
 
 func (m Model) viewList() string {
 	height := m.bodyHeight()
-	if len(m.view) == 0 {
+	t := m.tabs[m.active]
+	if len(t.view) == 0 {
 		if m.onlySaved {
-			return m.centered("nenhuma matéria salva ainda — use f para favoritar")
+			return m.centered("nenhuma matéria salva em " + t.section.Name + " — use f para favoritar")
 		}
-		return m.centered("nada no feed")
+		return m.centered("nada em " + t.section.Name)
 	}
 
 	per := m.itemsPerPage()
-	end := m.top + per
-	if end > len(m.view) {
-		end = len(m.view)
+	end := t.top + per
+	if end > len(t.view) {
+		end = len(t.view)
 	}
 
 	var lines []string
-	for i := m.top; i < end; i++ {
+	for i := t.top; i < end; i++ {
 		lines = append(lines, m.viewItem(i)...)
 	}
 
@@ -116,13 +183,14 @@ func (m Model) viewList() string {
 }
 
 func (m Model) viewItem(i int) []string {
-	it := m.items[m.view[i]]
+	t := m.tabs[m.active]
+	it := t.items[t.view[i]]
 	isRead := m.cfg.Store.IsRead(it.ID())
 	isSaved := m.cfg.Store.IsSaved(it.ID())
 
 	number := fmt.Sprintf("%3d ", i+1)
 	marker := "  "
-	if i == m.cursor {
+	if i == t.cursor {
 		marker = cursorStyle.Render("▸ ")
 	}
 
@@ -138,7 +206,14 @@ func (m Model) viewItem(i int) []string {
 	}
 	title := style.Render(truncate.StringWithTail(it.Title, uint(titleWidth), "…"))
 
-	meta := []string{strings.ToUpper(it.Section)}
+	// Na Home o rótulo útil é a seção; dentro de uma seção ela é redundante,
+	// então mostramos a editoria específica (Brasileirão, Eleições, …).
+	label := it.Section
+	if t.section.Cat != 0 && it.Subsection != "" {
+		label = it.Subsection
+	}
+
+	meta := []string{strings.ToUpper(label)}
 	if rel := relativeTime(it.Published); rel != "" {
 		meta = append(meta, rel)
 	}
@@ -159,7 +234,7 @@ func (m Model) viewItem(i int) []string {
 
 // renderArticle monta o conteúdo do leitor para a matéria aberta.
 func (m Model) renderArticle() string {
-	it := m.items[m.readingIdx]
+	it := m.reading()
 	l := render.FitLayout(m.width, m.cfg.Justify)
 
 	head := render.RenderHeader(render.Header{
@@ -187,7 +262,8 @@ func (m Model) viewStatus() string {
 		)
 	default:
 		left = m.hints(
-			"j/k", "navegar", "enter", "ler", "o", "browser", "y", "copiar", "f", "salvar", "s", "favoritos", "r", "recarregar", "?", "ajuda",
+			"j/k", "navegar", "h/l", "seção", "enter", "ler", "o", "browser", "y", "copiar",
+			"f", "salvar", "s", "favoritos", "r", "recarregar", "?", "ajuda",
 		)
 	}
 
@@ -229,11 +305,14 @@ func (m Model) hints(pairs ...string) string {
 
 func (m Model) viewHelp() string {
 	rows := [][2]string{
+		{"tab / shift+tab", "próxima / seção anterior"},
+		{"h / l / ← / →", "trocar de seção (na lista)"},
+		{"1…9 / 0", "pular direto para uma seção"},
 		{"j / k / ↓ / ↑", "navegar ou rolar"},
 		{"ctrl+d / ctrl+u", "meia página"},
 		{"g / G", "início / fim"},
-		{"enter / l", "abrir a matéria"},
-		{"esc / h / q", "voltar (ou sair, na lista)"},
+		{"enter", "abrir a matéria"},
+		{"esc / q", "voltar (ou sair, na lista)"},
 		{"J / K", "próxima / anterior sem sair do leitor"},
 		{"o", "abrir no navegador"},
 		{"y", "copiar o link"},

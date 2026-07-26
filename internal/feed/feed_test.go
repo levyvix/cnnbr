@@ -42,6 +42,80 @@ func TestParseRealFeed(t *testing.T) {
 	}
 }
 
+func TestSections(t *testing.T) {
+	slugs := make(map[string]bool)
+	cats := make(map[int]bool)
+	for i, s := range Sections {
+		if s.Slug == "" || s.Name == "" {
+			t.Errorf("seção %d incompleta: %+v", i, s)
+		}
+		if slugs[s.Slug] {
+			t.Errorf("slug duplicado: %s", s.Slug)
+		}
+		slugs[s.Slug] = true
+
+		if i == 0 {
+			if s.Cat != 0 {
+				t.Error("a primeira aba deve ser o feed geral (Cat 0)")
+			}
+			continue
+		}
+		if s.Cat <= 0 {
+			t.Errorf("seção %s sem ID de categoria", s.Slug)
+		}
+		if cats[s.Cat] {
+			t.Errorf("categoria duplicada em %s: %d", s.Slug, s.Cat)
+		}
+		cats[s.Cat] = true
+	}
+}
+
+func TestSubsection(t *testing.T) {
+	cases := []struct {
+		link string
+		cats []string
+		want string
+	}{
+		{
+			// A ordem das categorias é alfabética; o slug da URL decide.
+			link: "https://www.cnnbrasil.com.br/esportes/brasileirao/remo-x-vitoria/",
+			cats: []string{"Brasileirão", "Campeonato Brasileiro", "Remo", "Vitória (time)"},
+			want: "Brasileirão",
+		},
+		{
+			// Sem categoria correspondente, cai no slug formatado.
+			link: "https://www.cnnbrasil.com.br/pop/musica/show-da-xuxa/",
+			cats: []string{"Celebridades"},
+			want: "Musica",
+		},
+		{
+			link: "https://www.cnnbrasil.com.br/politica/",
+			cats: []string{"Política"},
+			want: "",
+		},
+	}
+	for _, c := range cases {
+		if got := subsectionOf(c.link, c.cats); got != c.want {
+			t.Errorf("subsectionOf(%q) = %q, quero %q", c.link, got, c.want)
+		}
+	}
+}
+
+func TestSlugify(t *testing.T) {
+	cases := map[string]string{
+		"Brasileirão":           "brasileirao",
+		"Vitória (time)":        "vitoria-time",
+		"Eleições 2026":         "eleicoes-2026",
+		"Futebol Internacional": "futebol-internacional",
+		"Saúde":                 "saude",
+	}
+	for in, want := range cases {
+		if got := slugify(in); got != want {
+			t.Errorf("slugify(%q) = %q, quero %q", in, got, want)
+		}
+	}
+}
+
 func TestSectionOf(t *testing.T) {
 	cases := map[string]string{
 		"https://www.cnnbrasil.com.br/esportes/brasileirao/x/": "Esportes",

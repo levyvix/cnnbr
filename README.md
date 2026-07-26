@@ -8,6 +8,16 @@ O conteúdo vem do RSS da CNN, que expõe a matéria completa em
 `content:encoded` — não há scraping de página, e o feed em cache faz a lista
 abrir instantaneamente (inclusive offline).
 
+## Seções
+
+Uma aba por editoria: Home, Política, Nacional, Internacional, Economia,
+Esportes, Pop, Tecnologia, Saúde e Eleições. Cada aba busca o próprio feed
+(`/feed/?cat=<id>`, que já inclui as subcategorias) e tem cache e posição de
+leitura independentes — o carregamento é preguiçoso, só na primeira visita.
+
+Dentro de uma seção, cada matéria mostra a editoria específica
+(`BRASILEIRÃO`, `FUTEBOL`) em vez de repetir o nome da aba.
+
 ## Instalação
 
 ```sh
@@ -24,11 +34,14 @@ go build -o cnnbr . && ./cnnbr
 
 | tecla | ação |
 | --- | --- |
+| `tab` `shift+tab` | próxima / seção anterior |
+| `h` `l` `←` `→` | trocar de seção (na lista) |
+| `1`…`9` `0` | pular direto para uma seção |
 | `j` `k` `↓` `↑` | navegar na lista / rolar a matéria |
 | `ctrl+d` `ctrl+u` | meia página |
 | `g` `G` | início / fim |
-| `enter` `l` | abrir a matéria |
-| `esc` `h` `q` | voltar (na lista, sai) |
+| `enter` | abrir a matéria |
+| `esc` `q` | voltar (na lista, sai) |
 | `J` `K` | próxima / anterior sem sair do leitor |
 | `o` | abrir no navegador |
 | `y` | copiar o link |
@@ -36,7 +49,7 @@ go build -o cnnbr . && ./cnnbr
 | `m` | alternar lida / não lida |
 | `s` | ver só os favoritos |
 | `t` | alternar texto justificado |
-| `r` | recarregar o feed |
+| `r` | recarregar a seção atual |
 | `?` | ajuda |
 
 A roda do mouse também rola, tanto na lista quanto no leitor.
@@ -61,7 +74,7 @@ testes são pulados em vez de falhar.
 
 ## Onde ficam os arquivos
 
-- cache do feed: `$XDG_CACHE_HOME/cnnbr/feed.json`
+- cache dos feeds: `$XDG_CACHE_HOME/cnnbr/feed-<seção>.json`
 - lidas e favoritos: `$XDG_DATA_HOME/cnnbr/state.json`
 
 Marcações de leitura com mais de 60 dias são descartadas na inicialização;
