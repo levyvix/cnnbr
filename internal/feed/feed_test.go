@@ -2,6 +2,7 @@ package feed
 
 import (
 	"os"
+	"strings"
 	"testing"
 )
 
@@ -83,10 +84,29 @@ func TestSubsection(t *testing.T) {
 			want: "Brasileirão",
 		},
 		{
-			// Sem categoria correspondente, cai no slug formatado.
-			link: "https://www.cnnbrasil.com.br/pop/musica/show-da-xuxa/",
+			// Três níveis de categoria: vale o segundo segmento.
+			link: "https://www.cnnbrasil.com.br/esportes/futebol/flamengo/flamengo-anuncia-bustos/",
+			cats: []string{"Flamengo", "Futebol", "Futebol brasileiro"},
+			want: "Futebol",
+		},
+		{
+			// Matéria direto na seção: o segundo segmento é o slug do título,
+			// não uma editoria.
+			link: "https://www.cnnbrasil.com.br/politica/pt-aciona-stf-por-video-de-ia-de-bolsonaro/",
+			cats: []string{"Política", "PT"},
+			want: "",
+		},
+		{
+			// A matéria não lista a categoria do caminho: formatamos o slug.
+			link: "https://www.cnnbrasil.com.br/esportes/futebol/flamengo-anuncia-bustos/",
+			cats: []string{"Futebol brasileiro", "Flamengo"},
+			want: "Futebol",
+		},
+		{
+			// Slug longo demais para ser editoria: provavelmente é título.
+			link: "https://www.cnnbrasil.com.br/pop/uma-frase-bem-longa-aqui/mais/",
 			cats: []string{"Celebridades"},
-			want: "Musica",
+			want: "",
 		},
 		{
 			link: "https://www.cnnbrasil.com.br/politica/",
@@ -99,6 +119,43 @@ func TestSubsection(t *testing.T) {
 			t.Errorf("subsectionOf(%q) = %q, quero %q", c.link, got, c.want)
 		}
 	}
+}
+
+// TestSubsectionRealFeed exige que toda subseção seja uma categoria de verdade
+// da própria matéria. Sem isso, o slug do título vira rótulo — era o que
+// acontecia em Política e Internacional, onde a URL não tem subcategoria.
+func TestSubsectionRealFeed(t *testing.T) {
+	items, err := Parse(openFixture(t))
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	comSub := 0
+	for _, it := range items {
+		if it.Subsection == "" {
+			continue
+		}
+		comSub++
+
+		// A subseção tem de ser o segundo segmento da URL — nunca o slug do
+		// título, que é o que aparecia antes em Política e Internacional.
+		parts := strings.Split(strings.Trim(strings.SplitN(it.Link, ".com.br", 2)[1], "/"), "/")
+		if len(parts) < 3 {
+			t.Errorf("subseção %q numa URL sem subcategoria: %s", it.Subsection, it.Link)
+			continue
+		}
+		if slugify(it.Subsection) != parts[1] {
+			t.Errorf("subseção %q não corresponde ao caminho %q em %q", it.Subsection, parts[1], it.Title)
+		}
+		if palavras := len(strings.Fields(it.Subsection)); palavras > 3 {
+			t.Errorf("subseção suspeita de ser título: %q em %q", it.Subsection, it.Title)
+		}
+	}
+
+	if comSub == 0 {
+		t.Error("nenhuma matéria com subseção — a detecção deve estar quebrada")
+	}
+	t.Logf("%d de %d matérias têm subseção", comSub, len(items))
 }
 
 func TestSlugify(t *testing.T) {

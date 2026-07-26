@@ -171,26 +171,41 @@ func cleanCategories(in []string) []string {
 	return out
 }
 
-// subsectionOf devolve a editoria mais específica da matéria. O segundo
-// segmento da URL (/esportes/brasileirao/...) dá o slug; o nome bonito, com
-// acentos, vem da <category> correspondente — a ordem das categorias no feed é
-// alfabética, então pegar a primeira daria "Vitória (time)" em vez de
-// "Brasileirão".
+// subsectionOf devolve a editoria mais específica da matéria, ou "" quando não
+// existe uma.
+//
+// Só há subseção quando o caminho tem pelo menos três segmentos
+// (/esportes/brasileirao/remo-x-vitoria/): boa parte das matérias vive direto
+// na seção (/politica/pt-aciona-stf/), e aí o segundo segmento é o slug do
+// próprio título — foi o que já apareceu como "PT ACIONA STF POR VIDEO DE IA".
+//
+// O nome bonito, com acentos, vem da <category> correspondente. A ordem das
+// categorias no feed é alfabética, então pegar a primeira daria "Vitória
+// (time)" em vez de "Brasileirão". Sem categoria correspondente devolvemos ""
+// em vez de inventar um rótulo a partir do slug.
 func subsectionOf(link string, cats []string) string {
 	u, err := url.Parse(link)
 	if err != nil {
 		return ""
 	}
 	parts := strings.Split(strings.Trim(u.Path, "/"), "/")
-	if len(parts) < 2 || parts[1] == "" {
+	if len(parts) < 3 || parts[1] == "" {
 		return ""
 	}
-	slug := parts[1]
 
+	slug := parts[1]
 	for _, c := range cats {
 		if slugify(c) == slug {
 			return c
 		}
+	}
+
+	// A matéria nem sempre lista a categoria do caminho ("Futebol brasileiro"
+	// no lugar de "Futebol"). Com três segmentos o slug é categoria de verdade,
+	// então dá para formatá-lo — perdendo os acentos. O limite de palavras é o
+	// cinto de segurança contra slug de título.
+	if strings.Count(slug, "-") > 2 {
+		return ""
 	}
 	return strings.ToUpper(slug[:1]) + strings.ReplaceAll(slug[1:], "-", " ")
 }
