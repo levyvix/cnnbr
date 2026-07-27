@@ -8,6 +8,8 @@ O conteúdo vem do RSS da CNN, que expõe a matéria completa em
 `content:encoded` — não há scraping de página, e o feed em cache faz a lista
 abrir instantaneamente (inclusive offline).
 
+![A lista de manchetes, na aba Home](docs/lista.png)
+
 ## Seções
 
 Uma aba por editoria: Home, Política, Nacional, Internacional, Economia,
