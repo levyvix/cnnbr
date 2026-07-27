@@ -188,14 +188,15 @@ func (m Model) viewItem(i int) []string {
 	isRead := m.cfg.Store.IsRead(it.ID())
 	isSaved := m.cfg.Store.IsSaved(it.ID())
 
-	number := fmt.Sprintf("%3d ", i+1)
-	marker := "  "
+	// A barra ocupa as duas linhas do item: a seleção precisa ser legível de
+	// relance, sem depender de um caractere pequeno numa lista densa.
+	prefix, indent := "  ", "  "
 	if i == t.cursor {
-		marker = cursorStyle.Render("▸ ")
+		prefix = cursorStyle.Render("█ ")
+		indent = prefix
 	}
 
-	prefix := marker + itemMetaStyle.Render(number)
-	titleWidth := m.width - lipgloss.Width(prefix) - 2
+	titleWidth := m.width - 2 - 2
 	if titleWidth < 10 {
 		titleWidth = 10
 	}
@@ -224,7 +225,6 @@ func (m Model) viewItem(i int) []string {
 		metaLine += savedStyle.Render("  ★")
 	}
 
-	indent := strings.Repeat(" ", lipgloss.Width(prefix))
 	return []string{
 		prefix + title,
 		indent + metaLine,
@@ -250,6 +250,20 @@ func (m Model) renderArticle() string {
 }
 
 func (m Model) viewStatus() string {
+	t := m.tabs[m.active]
+
+	right := ""
+	switch {
+	case m.mode == modeReader:
+		right = headerMeta.Render(fmt.Sprintf("%3.0f%%", m.reader.ScrollPercent()*100))
+	case len(t.view) > 0:
+		right = headerMeta.Render(fmt.Sprintf("%d/%d", t.cursor+1, len(t.view)))
+	}
+
+	// As dicas disputam a linha com o indicador da direita: só o essencial
+	// fica fixo, o resto vive em `?`.
+	avail := m.width - lipgloss.Width(right) - 2
+
 	var left string
 	switch {
 	case m.statusText != "" && m.statusErr:
@@ -257,19 +271,9 @@ func (m Model) viewStatus() string {
 	case m.statusText != "":
 		left = okStyle.Render("✓ " + m.statusText)
 	case m.mode == modeReader:
-		left = m.hints(
-			"j/k", "rolar", "J/K", "próxima", "o", "browser", "y", "copiar", "f", "salvar", "esc", "voltar", "?", "ajuda",
-		)
+		left = m.hints(avail, "j/k", "rolar", "J/K", "próxima", "o", "browser", "esc", "voltar", "?", "ajuda")
 	default:
-		left = m.hints(
-			"j/k", "navegar", "h/l", "seção", "enter", "ler", "o", "browser", "y", "copiar",
-			"f", "salvar", "s", "favoritos", "r", "recarregar", "?", "ajuda",
-		)
-	}
-
-	right := ""
-	if m.mode == modeReader {
-		right = headerMeta.Render(fmt.Sprintf("%3.0f%%", m.reader.ScrollPercent()*100))
+		left = m.hints(avail, "enter", "ler", "f", "salvar", "s", "favoritos", "?", "ajuda")
 	}
 
 	gap := m.width - lipgloss.Width(left) - lipgloss.Width(right)
@@ -283,8 +287,10 @@ func (m Model) viewStatus() string {
 		left + strings.Repeat(" ", gap) + right
 }
 
-// hints monta pares tecla/descrição, cortando os que não couberem.
-func (m Model) hints(pairs ...string) string {
+// hints monta pares tecla/descrição em até `avail` colunas. Quando não cabem
+// todos, descarta a partir do penúltimo: o último é sempre `? ajuda`, que é o
+// caminho para tudo que foi cortado.
+func (m Model) hints(avail int, pairs ...string) string {
 	var parts []string
 	for i := 0; i+1 < len(pairs); i += 2 {
 		parts = append(parts, keyStyle.Render(pairs[i])+hintStyle.Render(" "+pairs[i+1]))
@@ -292,10 +298,10 @@ func (m Model) hints(pairs ...string) string {
 
 	for len(parts) > 1 {
 		joined := strings.Join(parts, hintStyle.Render("  ·  "))
-		if lipgloss.Width(joined) <= m.width {
+		if lipgloss.Width(joined) <= avail {
 			return joined
 		}
-		parts = parts[:len(parts)-1]
+		parts = append(parts[:len(parts)-2], parts[len(parts)-1])
 	}
 	if len(parts) == 0 {
 		return ""
