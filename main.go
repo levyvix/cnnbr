@@ -18,7 +18,7 @@ import (
 func main() {
 	pages := flag.Int("pages", 2, "páginas do feed a buscar (60 matérias por página)")
 	ttl := flag.Duration("ttl", 15*time.Minute, "validade do cache antes de buscar de novo")
-	justify := flag.Bool("justify", false, "justificar o texto nas duas margens (alterna com t)")
+	justify := flag.Bool("justify", true, "justificar o texto nas duas margens (alterna com t)")
 	flag.Parse()
 
 	st := store.Default()
