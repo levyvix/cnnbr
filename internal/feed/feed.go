@@ -81,6 +81,7 @@ func Fetch(ctx context.Context, client *http.Client, cat, pages int) ([]Item, er
 		}
 	}
 
+	// recent items first
 	sort.SliceStable(all, func(a, b int) bool {
 		return all[a].Published.After(all[b].Published)
 	})
@@ -126,14 +127,14 @@ func Parse(r io.Reader) ([]Item, error) {
 		return nil, fmt.Errorf("decodificando RSS: %w", err)
 	}
 
-	items := make([]Item, 0, len(doc.Items))
+	outItems := make([]Item, 0, len(doc.Items))
 	for _, raw := range doc.Items {
 		link := strings.TrimSpace(raw.Link)
 		if link == "" {
 			continue
 		}
 		cats := cleanCategories(raw.Categories)
-		items = append(items, Item{
+		outItems = append(outItems, Item{
 			Title:      strings.TrimSpace(raw.Title),
 			Link:       link,
 			Author:     strings.TrimSpace(raw.Creator),
@@ -145,13 +146,13 @@ func Parse(r io.Reader) ([]Item, error) {
 			HTML:       raw.Content,
 		})
 	}
-	return items, nil
+	return outItems, nil
 }
 
 func parseDate(s string) time.Time {
 	s = strings.TrimSpace(s)
 	for _, layout := range []string{time.RFC1123Z, time.RFC1123, time.RFC822Z, time.RFC822} {
-		if t, err := time.Parse(layout, s); err == nil {
+		if t, err := time.Parse(layout, s); nil == err {
 			return t.Local()
 		}
 	}

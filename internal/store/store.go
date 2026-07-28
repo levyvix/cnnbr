@@ -20,7 +20,7 @@ type Store struct {
 	path  string
 	mu    sync.Mutex
 	state State
-	dirty bool
+	dirty bool // se o cache atual em memoria esta "desatualuzado" do cache salvo em disco
 }
 
 // Default aponta para $XDG_DATA_HOME/cnnbr/state.json.
