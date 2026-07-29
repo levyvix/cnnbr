@@ -258,19 +258,28 @@ var sectionLabels = map[string]string{
 	"noticias":           "Notícias",
 }
 
+// SlugOf é o primeiro segmento do caminho da matéria. Quando ele coincide com o
+// Slug de uma Section, é a seção a que a matéria pertence — o que permite ao
+// leitor tirar da Home as matérias de uma seção que ele ocultou. A CNN publica
+// também em caminhos que não são seção do leitor (/lifestyle/, /auto/), e para
+// esses o slug simplesmente não casa com nenhuma.
+func SlugOf(link string) string {
+	u, err := url.Parse(link)
+	if err != nil {
+		return ""
+	}
+	parts := strings.Split(strings.Trim(u.Path, "/"), "/")
+	return parts[0]
+}
+
 // SectionOf extrai a seção a partir do caminho da URL da matéria — o rótulo
 // mostrado em cada item da lista. É mais confiável que <category>, que traz
 // dezenas de tags por matéria ("Corinthians", "-agencia-cnn-", …).
 func SectionOf(link string) string {
-	u, err := url.Parse(link)
-	if err != nil {
+	slug := SlugOf(link)
+	if slug == "" {
 		return "Notícias"
 	}
-	parts := strings.Split(strings.Trim(u.Path, "/"), "/")
-	if len(parts) == 0 || parts[0] == "" {
-		return "Notícias"
-	}
-	slug := parts[0]
 	if label, ok := sectionLabels[slug]; ok {
 		return label
 	}

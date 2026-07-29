@@ -357,6 +357,76 @@ func TestMoveAHiddenSectionKeepsItsPlace(t *testing.T) {
 	}
 }
 
+// homeWithItems põe na Home uma matéria de cada caminho pedido.
+func homeWithItems(t *testing.T, m Model, links ...string) Model {
+	t.Helper()
+	items := make([]feed.Item, 0, len(links))
+	for _, link := range links {
+		items = append(items, feed.Item{Title: link, Link: "https://www.cnnbrasil.com.br" + link})
+	}
+	m.tabs[0].items = items
+	m.tabs[0].loaded = true
+	m.rebuildView(0)
+	return m
+}
+
+// homeTitles são os links das matérias que a Home está listando.
+func homeTitles(m Model) []string {
+	out := make([]string, 0, len(m.tabs[0].view))
+	for _, i := range m.tabs[0].view {
+		out = append(out, m.tabs[0].items[i].Title)
+	}
+	return out
+}
+
+func TestHomeDoesNotListArticlesFromHiddenSections(t *testing.T) {
+	m := homeWithItems(t, newTestModel(t),
+		"/politica/pt-aciona-stf/",
+		"/esportes/brasileirao/remo-x-vitoria/",
+		"/lifestyle/como-dormir-melhor/",
+	)
+	if got := len(homeTitles(m)); got != 3 {
+		t.Fatalf("a Home nasceu com %d matérias, quero as 3", got)
+	}
+
+	m = press(t, cursorOnSection(t, openPanel(t, m), "esportes"), " ")
+
+	got := homeTitles(m)
+	for _, link := range got {
+		if strings.HasPrefix(link, "/esportes/") {
+			t.Errorf("a Home continua listando %q com esportes oculta", link)
+		}
+	}
+	if len(got) != 2 {
+		t.Fatalf("a Home ficou com %d matérias, quero 2: %v", len(got), got)
+	}
+	// Lifestyle não é seção do leitor: não há como ocultá-la, e ela fica.
+	if got[1] != "/lifestyle/como-dormir-melhor/" {
+		t.Errorf("a Home perdeu a matéria de fora das seções: %v", got)
+	}
+
+	m = press(t, m, " ") // reexibe esportes
+	if got := len(homeTitles(m)); got != 3 {
+		t.Errorf("reexibir esportes deixou a Home com %d matérias, quero as 3", got)
+	}
+}
+
+func TestSectionListsEverythingItsFeedBrings(t *testing.T) {
+	// Dentro de uma seção o feed já vem só dela, e as ocultas não filtram nada:
+	// a aba de Esportes oculta continua navegável pelo painel.
+	m := modelWithSections(t, []prefs.Section{{Slug: "politica", Visible: false}})
+	idx := 1 // politica
+	m.tabs[idx].items = []feed.Item{
+		{Title: "uma", Link: "https://www.cnnbrasil.com.br/politica/uma/"},
+		{Title: "outra", Link: "https://www.cnnbrasil.com.br/politica/outra/"},
+	}
+	m.rebuildView(idx)
+
+	if got := len(m.tabs[idx].view); got != 2 {
+		t.Errorf("politica oculta listou %d matérias, quero as 2 do feed dela", got)
+	}
+}
+
 func TestPanelHintsFollowTheRowUnderTheCursor(t *testing.T) {
 	next, _ := newTestModel(t).Update(tea.WindowSizeMsg{Width: 120, Height: 24})
 	m := press(t, next.(Model), "c")

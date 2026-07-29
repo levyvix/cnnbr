@@ -82,6 +82,11 @@ primeira aba da barra. Ocultar não joga nada fora: as matérias já carregadas,
 posição de leitura e o cache continuam lá, e reexibir não busca nada. A última
 seção visível não pode ser ocultada.
 
+Ocultar uma seção também tira as matérias dela da **Home**, que é o feed geral e
+traz de tudo — a aba não sai da barra para a matéria reaparecer na primeira tela.
+Matérias em caminhos que não são seção do leitor (`/lifestyle/`, `/auto/`)
+continuam na Home: não há como ocultá-las.
+
 Quando cada preferência passa a valer:
 
 | preferência | vale |
