@@ -20,6 +20,9 @@ leitura independentes — o carregamento é preguiçoso, só na primeira visita.
 Dentro de uma seção, cada matéria mostra a editoria específica
 (`BRASILEIRÃO`, `FUTEBOL`) em vez de repetir o nome da aba.
 
+Quais seções aparecem e em que ordem se ajusta no painel (`c`) — quem nunca abre
+Pop pode ocultá-la, e quem lê muito Economia pode colocá-la em `2`.
+
 ## Instalação
 
 ```sh
@@ -52,6 +55,8 @@ go build -o cnnbr . && ./cnnbr
 | `s` | ver só os favoritos |
 | `t` | alternar texto justificado |
 | `c` | painel de preferências (na lista) |
+| `espaço` | mostrar / ocultar a seção (no painel) |
+| `J` `K` | reordenar as seções (no painel) |
 | `r` | recarregar a seção atual |
 | `?` | ajuda |
 
@@ -60,14 +65,22 @@ A roda do mouse também rola, tanto na lista quanto no leitor.
 ## Preferências
 
 `c`, na lista, abre o painel de preferências: justificação, páginas do feed,
-validade do cache e retenção do histórico de leitura, sem sair do programa nem
-lembrar o nome de nenhuma flag.
+validade do cache, retenção do histórico de leitura e as seções, sem sair do
+programa nem lembrar o nome de nenhuma flag.
 
 O painel ocupa a área do corpo, com o cabeçalho e a barra de abas à vista.
 `j`/`k` navegam, `h`/`l` (ou `espaço`) percorrem os valores de cada linha — que
 são sempre uma lista fechada, nunca um campo de texto. Não há confirmar nem
 descartar: cada mudança vale no momento da tecla, e `esc`, `q` ou `c` fecham e
 gravam.
+
+O grupo **Seções** lista todas as seções na ordem da barra de abas: `espaço`
+mostra e oculta a que está sob o cursor, `J` e `K` movem ela para baixo e para
+cima. O efeito aparece na barra de abas na hora, e a ordem escolhida governa
+também `tab`/`shift+tab`, `h`/`l` e a numeração dos dígitos — `1` é sempre a
+primeira aba da barra. Ocultar não joga nada fora: as matérias já carregadas, a
+posição de leitura e o cache continuam lá, e reexibir não busca nada. A última
+seção visível não pode ser ocultada.
 
 Quando cada preferência passa a valer:
 

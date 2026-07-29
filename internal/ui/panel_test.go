@@ -2,6 +2,7 @@ package ui
 
 import (
 	"path/filepath"
+	"reflect"
 	"strings"
 	"testing"
 	"time"
@@ -27,7 +28,7 @@ func openPanel(t *testing.T, m Model) Model {
 // j/k tem teste próprio; aqui interessa a escolha, não como se chega nela.
 func cursorOn(t *testing.T, m Model, label string) Model {
 	t.Helper()
-	for i, r := range panelRows {
+	for i, r := range m.panelRows() {
 		if r.pref != nil && r.pref.label == label {
 			m.panel.cursor = i
 			return m
@@ -56,40 +57,31 @@ func TestPanelOpensOnlyFromTheList(t *testing.T) {
 func TestPanelCursorSkipsGroupTitles(t *testing.T) {
 	m := openPanel(t, newTestModel(t))
 
-	if panelRows[m.panel.cursor].pref == nil {
+	rows := m.panelRows()
+	if !rows[m.panel.cursor].selectable() {
 		t.Fatal("o painel abre com o cursor num subtítulo")
 	}
 
 	// Uma descida completa nunca pousa num subtítulo, e para na última linha.
-	for i := 0; i < len(panelRows)+2; i++ {
+	for i := 0; i < len(rows)+2; i++ {
 		m = press(t, m, "j")
-		if panelRows[m.panel.cursor].pref == nil {
-			t.Fatalf("j parou no subtítulo %q", panelRows[m.panel.cursor].title)
+		if !rows[m.panel.cursor].selectable() {
+			t.Fatalf("j parou no subtítulo %q", rows[m.panel.cursor].title)
 		}
 	}
-	if want := lastPrefRow(); m.panel.cursor != want {
+	if want := len(rows) - 1; m.panel.cursor != want {
 		t.Errorf("j sem fim parou em %d, quero %d", m.panel.cursor, want)
 	}
 
-	for i := 0; i < len(panelRows)+2; i++ {
+	for i := 0; i < len(rows)+2; i++ {
 		m = press(t, m, "k")
-		if panelRows[m.panel.cursor].pref == nil {
-			t.Fatalf("k parou no subtítulo %q", panelRows[m.panel.cursor].title)
+		if !rows[m.panel.cursor].selectable() {
+			t.Fatalf("k parou no subtítulo %q", rows[m.panel.cursor].title)
 		}
 	}
 	if want := firstPrefRow(); m.panel.cursor != want {
 		t.Errorf("k sem fim parou em %d, quero %d", m.panel.cursor, want)
 	}
-}
-
-func lastPrefRow() int {
-	last := 0
-	for i, r := range panelRows {
-		if r.pref != nil {
-			last = i
-		}
-	}
-	return last
 }
 
 func TestPanelCyclesClosedValues(t *testing.T) {
@@ -122,11 +114,18 @@ func TestPanelCyclesClosedValues(t *testing.T) {
 		t.Run(tc.name, func(t *testing.T) {
 			m := cursorOn(t, openPanel(t, newTestModel(t)), tc.label)
 			m = press(t, m, tc.keys...)
-			if m.prefs != tc.want {
+			if !reflect.DeepEqual(scalars(m.prefs), tc.want) {
 				t.Errorf("preferências = %+v, quero %+v", m.prefs, tc.want)
 			}
 		})
 	}
+}
+
+// scalars são as preferências sem a lista de seções, que tem testes próprios e
+// não cabe numa comparação de struct.
+func scalars(p prefs.Prefs) prefs.Prefs {
+	p.Sections = nil
+	return p
 }
 
 // mut devolve os padrões com uma alteração aplicada.
@@ -210,7 +209,7 @@ func TestPanelShowsUnknownValueAsIs(t *testing.T) {
 
 func findPref(t *testing.T, label string) preference {
 	t.Helper()
-	for _, r := range panelRows {
+	for _, r := range prefRows {
 		if r.pref != nil && r.pref.label == label {
 			return *r.pref
 		}
@@ -346,14 +345,14 @@ func TestPanelScrollsWhenItDoesNotFit(t *testing.T) {
 	next, _ := newTestModel(t).Update(tea.WindowSizeMsg{Width: 80, Height: 8})
 	m := press(t, next.(Model), "c")
 
-	m = press(t, m, repeat("j", len(panelRows))...)
+	m = press(t, m, repeat("j", len(m.panelRows()))...)
 	if m.panel.top == 0 {
 		t.Error("com a tela curta o painel deveria rolar")
 	}
 	if got := strings.Count(m.viewPanel(), "\n") + 1; got != m.bodyHeight() {
 		t.Errorf("o painel desenhou %d linhas, quero %d", got, m.bodyHeight())
 	}
-	if !strings.Contains(m.viewPanel(), panelRows[m.panel.cursor].pref.label) {
+	if label := m.rowLabel(m.panelRows()[m.panel.cursor]); !strings.Contains(m.viewPanel(), label) {
 		t.Error("a linha sob o cursor saiu da tela")
 	}
 }

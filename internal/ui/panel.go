@@ -92,9 +92,9 @@ func abs(n int64) int64 {
 // desligaria a poda sem querer.
 const forever = math.MaxInt32
 
-// panelRows é a lista plana do painel, na ordem em que aparece: subtítulos de
-// grupo, que o cursor pula, e as preferências.
-var panelRows = []panelRow{
+// prefRows são as linhas escalares do painel, na ordem em que aparecem:
+// subtítulos de grupo, que o cursor pula, e as preferências.
+var prefRows = []panelRow{
 	{title: "Leitura"},
 
 	{pref: &preference{
@@ -173,16 +173,32 @@ var panelRows = []panelRow{
 	}},
 }
 
-// panelRow é uma linha do painel: ou um subtítulo de grupo, que o cursor pula,
-// ou uma preferência.
+// panelRow é uma linha do painel: um subtítulo de grupo, que o cursor pula, uma
+// preferência escalar, ou uma seção.
 type panelRow struct {
-	title string
-	pref  *preference
+	title   string
+	pref    *preference
+	section *int // índice da aba em m.tabs, quando a linha é uma seção
+}
+
+// selectable diz se o cursor pousa nesta linha. Subtítulos, não.
+func (r panelRow) selectable() bool { return r.pref != nil || r.section != nil }
+
+// panelRows é a lista plana do painel. As linhas de seção dependem do estado do
+// modelo — a ordem delas é a da barra de abas, que muda com J/K.
+func (m Model) panelRows() []panelRow {
+	rows := make([]panelRow, 0, len(prefRows)+1+len(m.order))
+	rows = append(rows, prefRows...)
+	rows = append(rows, panelRow{title: "Seções"})
+	for _, idx := range m.order {
+		rows = append(rows, panelRow{section: &idx})
+	}
+	return rows
 }
 
 // firstPrefRow é onde o cursor pousa ao abrir o painel.
 func firstPrefRow() int {
-	for i, r := range panelRows {
+	for i, r := range prefRows {
 		if r.pref != nil {
 			return i
 		}
@@ -223,25 +239,36 @@ func (m Model) handlePanelKey(key string) (tea.Model, tea.Cmd) {
 		m.movePanelCursor(-1)
 
 	case "l", "right", " ":
-		m.cyclePref(1)
+		return m.cycleRow(1)
 	case "h", "left":
-		m.cyclePref(-1)
+		return m.cycleRow(-1)
+
+	case "J":
+		m.moveSection(1)
+	case "K":
+		m.moveSection(-1)
 	}
 	return m, nil
 }
 
-func (m *Model) cyclePref(delta int) {
-	pref := panelRows[m.panel.cursor].pref
-	if pref == nil {
-		return
+// cycleRow anda um valor na linha sob o cursor. Numa seção o ciclo tem dois
+// valores, visível e oculta, então a direção não importa.
+func (m Model) cycleRow(delta int) (tea.Model, tea.Cmd) {
+	row := m.panelRows()[m.panel.cursor]
+	if row.section != nil {
+		return m.toggleSection(*row.section)
 	}
-	pref.apply(m, pref.next(m.prefs, delta))
+	if row.pref != nil {
+		row.pref.apply(&m, row.pref.next(m.prefs, delta))
+	}
+	return m, nil
 }
 
-// movePanelCursor anda até a próxima preferência, parando nas pontas.
+// movePanelCursor anda até a próxima linha selecionável, parando nas pontas.
 func (m *Model) movePanelCursor(delta int) {
-	for i := m.panel.cursor + delta; i >= 0 && i < len(panelRows); i += delta {
-		if panelRows[i].pref != nil {
+	rows := m.panelRows()
+	for i := m.panel.cursor + delta; i >= 0 && i < len(rows); i += delta {
+		if rows[i].selectable() {
 			m.panel.cursor = i
 			break
 		}
@@ -270,24 +297,23 @@ func (m Model) savePrefs() tea.Cmd {
 
 func (m Model) viewPanel() string {
 	height := m.bodyHeight()
+	rows := m.panelRows()
 
 	width := 0
-	for _, r := range panelRows {
-		if r.pref != nil {
-			if w := lipgloss.Width(r.pref.label); w > width {
-				width = w
-			}
+	for _, r := range rows {
+		if label := m.rowLabel(r); lipgloss.Width(label) > width {
+			width = lipgloss.Width(label)
 		}
 	}
 
 	end := m.panel.top + height
-	if end > len(panelRows) {
-		end = len(panelRows)
+	if end > len(rows) {
+		end = len(rows)
 	}
 
 	lines := make([]string, 0, height)
 	for i := m.panel.top; i < end; i++ {
-		lines = append(lines, m.viewPanelRow(i, width))
+		lines = append(lines, m.viewPanelRow(rows[i], i, width))
 	}
 	for len(lines) < height {
 		lines = append(lines, "")
@@ -295,9 +321,34 @@ func (m Model) viewPanel() string {
 	return strings.Join(lines[:height], "\n")
 }
 
-func (m Model) viewPanelRow(i, width int) string {
-	r := panelRows[i]
-	if r.pref == nil {
+// rowLabel é o rótulo da esquerda; vazio nos subtítulos, que não se alinham com
+// os valores.
+func (m Model) rowLabel(r panelRow) string {
+	switch {
+	case r.pref != nil:
+		return r.pref.label
+	case r.section != nil:
+		return m.tabs[*r.section].section.Name
+	}
+	return ""
+}
+
+// rowValue é o valor atual da linha, com a nota de quando ele passa a valer.
+func (m Model) rowValue(r panelRow) (value, note string) {
+	switch {
+	case r.pref != nil:
+		return r.pref.display(m.prefs), r.pref.note
+	case r.section != nil:
+		if m.tabs[*r.section].hidden {
+			return "oculta", ""
+		}
+		return "visível", ""
+	}
+	return "", ""
+}
+
+func (m Model) viewPanelRow(r panelRow, i, width int) string {
+	if !r.selectable() {
 		return "  " + titleStyle.Render(r.title)
 	}
 
@@ -306,11 +357,13 @@ func (m Model) viewPanelRow(i, width int) string {
 		prefix = cursorStyle.Render("█ ")
 	}
 
-	line := prefix + hintStyle.Render(fmt.Sprintf("%-*s", width, r.pref.label)) +
-		"  " + itemMetaStyle.Render("‹ ") + keyStyle.Render(r.pref.display(m.prefs)) +
+	value, note := m.rowValue(r)
+
+	line := prefix + hintStyle.Render(fmt.Sprintf("%-*s", width, m.rowLabel(r))) +
+		"  " + itemMetaStyle.Render("‹ ") + keyStyle.Render(value) +
 		itemMetaStyle.Render(" ›")
-	if r.pref.note != "" {
-		line += itemMetaStyle.Render("   " + r.pref.note)
+	if note != "" {
+		line += itemMetaStyle.Render("   " + note)
 	}
 	return line
 }

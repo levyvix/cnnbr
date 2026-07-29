@@ -44,7 +44,11 @@ type Config struct {
 }
 
 // tab é uma seção do feed com seu próprio conteúdo e posição de leitura.
+//
+// Ocultar uma aba não joga nada fora: ela sai de m.visible e continua com os
+// itens, o cursor e o cache que já tinha.
 type tab struct {
+	hidden    bool
 	section   feed.Section
 	items     []feed.Item
 	view      []int // índices de items visíveis, após filtro
@@ -69,6 +73,7 @@ type Model struct {
 	height int
 
 	tabs    []tab
+	order   []int // todos os índices de tabs, na ordem escolhida pelo leitor
 	visible []int // índices de tabs visíveis, na ordem da barra de abas
 	active  int   // índice em tabs
 
@@ -85,18 +90,48 @@ type Model struct {
 	blocks     []article.Block
 }
 
-// New cria o modelo inicial com uma aba por seção.
+// New cria o modelo inicial com uma aba por seção, na ordem e com a
+// visibilidade que as preferências pedem.
 func New(cfg Config, p prefs.Prefs) Model {
 	if p.Pages < 1 {
 		p.Pages = prefs.Defaults().Pages
 	}
+
 	tabs := make([]tab, len(feed.Sections))
-	visible := make([]int, len(feed.Sections))
+	known := make([]string, len(feed.Sections))
+	at := make(map[string]int, len(feed.Sections))
 	for i, s := range feed.Sections {
 		tabs[i] = tab{section: s}
-		visible[i] = i
+		known[i] = s.Slug
+		at[s.Slug] = i
 	}
-	return Model{cfg: cfg, prefs: p, tabs: tabs, visible: visible, reader: viewport.New(80, 20)}
+
+	// A ordem e a visibilidade vêm do arquivo; quais seções existem, do binário.
+	p.Sections = prefs.ReconcileSections(p.Sections, known)
+	order := make([]int, 0, len(p.Sections))
+	for _, s := range p.Sections {
+		idx := at[s.Slug]
+		tabs[idx].hidden = !s.Visible
+		order = append(order, idx)
+	}
+
+	m := Model{cfg: cfg, prefs: p, tabs: tabs, order: order, reader: viewport.New(80, 20)}
+	m.rebuildVisible()
+	// A primeira aba visível é a ativa: a Home pode estar oculta.
+	if len(m.visible) > 0 {
+		m.active = m.visible[0]
+	}
+	return m
+}
+
+// rebuildVisible recalcula a barra de abas a partir da ordem escolhida.
+func (m *Model) rebuildVisible() {
+	m.visible = m.visible[:0]
+	for _, idx := range m.order {
+		if !m.tabs[idx].hidden {
+			m.visible = append(m.visible, idx)
+		}
+	}
 }
 
 // Chosen devolve só as preferências que o leitor mudou nesta sessão, para o

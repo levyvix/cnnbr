@@ -16,6 +16,59 @@ type Prefs struct {
 	Pages         int           // páginas do feed a buscar
 	TTL           time.Duration // validade do cache
 	RetentionDays int           // dias de histórico de leitura; 0 = nunca podar
+	Sections      []Section     // as seções na ordem escolhida; nil = a ordem do binário
+}
+
+// Section é a escolha do leitor sobre uma seção: a posição dela na lista é a
+// posição na barra de abas, e o marcador diz se ela aparece.
+//
+// A lista é sempre completa — todas as seções, não só as visíveis. Ver
+// docs/adr/0002.
+type Section struct {
+	Slug    string `json:"slug"`
+	Visible bool   `json:"visible"`
+}
+
+// ReconcileSections cruza a lista que veio do arquivo com os slugs que este
+// binário conhece. O arquivo manda na ordem e na visibilidade; o binário manda
+// em quais seções existem.
+func ReconcileSections(fromFile []Section, known []string) []Section {
+	exists := make(map[string]bool, len(known))
+	for _, slug := range known {
+		exists[slug] = true
+	}
+
+	out := make([]Section, 0, len(known))
+	taken := make(map[string]bool, len(known))
+	for _, s := range fromFile {
+		if !exists[s.Slug] || taken[s.Slug] {
+			continue
+		}
+		taken[s.Slug] = true
+		out = append(out, s)
+	}
+	// Seção que o binário conhece e o arquivo não menciona entra visível: com uma
+	// allowlist estrita ela nasceria oculta e ninguém descobriria que existe.
+	for _, slug := range known {
+		if !taken[slug] {
+			out = append(out, Section{Slug: slug, Visible: true})
+		}
+	}
+
+	// Um arquivo editado à mão pode ocultar todas; sem abas não há o que desenhar.
+	if len(out) > 0 && !anyVisible(out) {
+		out[0].Visible = true
+	}
+	return out
+}
+
+func anyVisible(sections []Section) bool {
+	for _, s := range sections {
+		if s.Visible {
+			return true
+		}
+	}
+	return false
 }
 
 // Defaults são os padrões embutidos, a camada de baixo da resolução.
@@ -37,11 +90,13 @@ type Partial struct {
 	Pages         *int
 	TTL           *time.Duration
 	RetentionDays *int
+	Sections      []Section // nil = ausente; a lista, quando presente, é completa
 }
 
 // Empty informa se a camada não traz nenhum campo.
 func (p Partial) Empty() bool {
-	return p == Partial{}
+	return p.Justify == nil && p.Pages == nil && p.TTL == nil &&
+		p.RetentionDays == nil && p.Sections == nil
 }
 
 // Resolve empilha as três camadas: embutido, depois arquivo, depois flags.
@@ -61,6 +116,9 @@ func Resolve(file, flags Partial) Prefs {
 		if layer.RetentionDays != nil {
 			p.RetentionDays = *layer.RetentionDays
 		}
+		if layer.Sections != nil {
+			p.Sections = layer.Sections
+		}
 	}
 	return p
 }
@@ -78,10 +136,11 @@ func (p Prefs) Retention() time.Duration {
 // time.Duration em JSON serializa como nanossegundos, e a retenção vai em dias
 // porque é assim que se pensa nela — não como "1440h".
 type document struct {
-	Justify       *bool   `json:"justify,omitempty"`
-	Pages         *int    `json:"pages,omitempty"`
-	TTL           *string `json:"cache_ttl,omitempty"`
-	RetentionDays *int    `json:"history_days,omitempty"`
+	Justify       *bool     `json:"justify,omitempty"`
+	Pages         *int      `json:"pages,omitempty"`
+	TTL           *string   `json:"cache_ttl,omitempty"`
+	RetentionDays *int      `json:"history_days,omitempty"`
+	Sections      []Section `json:"sections,omitempty"`
 }
 
 // DefaultPath aponta para $XDG_CONFIG_HOME/cnnbr/config.json. É deliberadamente
@@ -115,7 +174,12 @@ func Load(path string) (Partial, error) {
 		return Partial{}, err
 	}
 
-	layer := Partial{Justify: doc.Justify, Pages: doc.Pages, RetentionDays: doc.RetentionDays}
+	layer := Partial{
+		Justify:       doc.Justify,
+		Pages:         doc.Pages,
+		RetentionDays: doc.RetentionDays,
+		Sections:      doc.Sections,
+	}
 	if doc.TTL != nil {
 		ttl, err := time.ParseDuration(*doc.TTL)
 		if err != nil {
@@ -130,7 +194,13 @@ func Load(path string) (Partial, error) {
 // nasce aqui: no arranque, a ausência dele é silenciosa.
 func Save(path string, p Prefs) error {
 	ttl := p.TTL.String()
-	doc := document{Justify: &p.Justify, Pages: &p.Pages, TTL: &ttl, RetentionDays: &p.RetentionDays}
+	doc := document{
+		Justify:       &p.Justify,
+		Pages:         &p.Pages,
+		TTL:           &ttl,
+		RetentionDays: &p.RetentionDays,
+		Sections:      p.Sections,
+	}
 
 	// Indentado porque o arquivo é para ser editado à mão.
 	data, err := json.MarshalIndent(doc, "", "  ")

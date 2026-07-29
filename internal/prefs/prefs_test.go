@@ -3,6 +3,7 @@ package prefs
 import (
 	"os"
 	"path/filepath"
+	"reflect"
 	"strings"
 	"testing"
 	"time"
@@ -10,7 +11,10 @@ import (
 
 func TestSaveLoadRoundtrip(t *testing.T) {
 	path := filepath.Join(t.TempDir(), "config.json")
-	want := Prefs{Justify: false, Pages: 4, TTL: 30 * time.Minute, RetentionDays: 7}
+	want := Prefs{
+		Justify: false, Pages: 4, TTL: 30 * time.Minute, RetentionDays: 7,
+		Sections: []Section{{"home", true}, {"pop", false}, {"esportes", true}},
+	}
 
 	if err := Save(path, want); err != nil {
 		t.Fatalf("Save: %v", err)
@@ -19,8 +23,66 @@ func TestSaveLoadRoundtrip(t *testing.T) {
 	if err != nil {
 		t.Fatalf("Load: %v", err)
 	}
-	if resolved := Resolve(got, Partial{}); resolved != want {
+	if resolved := Resolve(got, Partial{}); !reflect.DeepEqual(resolved, want) {
 		t.Errorf("roundtrip = %+v, quero %+v", resolved, want)
+	}
+}
+
+func TestReconcileSections(t *testing.T) {
+	known := []string{"home", "politica", "economia"}
+
+	tests := []struct {
+		name     string
+		fromFile []Section
+		want     []Section
+	}{
+		{
+			name: "sem arquivo, todas visíveis na ordem do binário",
+			want: []Section{{"home", true}, {"politica", true}, {"economia", true}},
+		},
+		{
+			name:     "a ordem do arquivo é respeitada",
+			fromFile: []Section{{"economia", true}, {"home", true}, {"politica", true}},
+			want:     []Section{{"economia", true}, {"home", true}, {"politica", true}},
+		},
+		{
+			name:     "o marcador de visibilidade é respeitado",
+			fromFile: []Section{{"home", true}, {"politica", false}, {"economia", true}},
+			want:     []Section{{"home", true}, {"politica", false}, {"economia", true}},
+		},
+		{
+			// Seção que a CNN aposentou e este binário não conhece mais.
+			name:     "slug desconhecido é ignorado",
+			fromFile: []Section{{"blogs", true}, {"home", true}, {"politica", true}, {"economia", true}},
+			want:     []Section{{"home", true}, {"politica", true}, {"economia", true}},
+		},
+		{
+			// Sem isso, uma seção nova nasceria oculta e ninguém descobriria que
+			// ela existe.
+			name:     "seção nova entra visível no fim",
+			fromFile: []Section{{"economia", false}, {"home", true}},
+			want:     []Section{{"economia", false}, {"home", true}, {"politica", true}},
+		},
+		{
+			name:     "slug repetido entra uma vez só",
+			fromFile: []Section{{"home", false}, {"home", true}},
+			want:     []Section{{"home", false}, {"politica", true}, {"economia", true}},
+		},
+		{
+			// Um arquivo editado à mão pode ocultar tudo; sem abas não há o que
+			// desenhar.
+			name:     "tudo oculto reexibe a primeira",
+			fromFile: []Section{{"economia", false}, {"home", false}, {"politica", false}},
+			want:     []Section{{"economia", true}, {"home", false}, {"politica", false}},
+		},
+	}
+
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			if got := ReconcileSections(tc.fromFile, known); !reflect.DeepEqual(got, tc.want) {
+				t.Errorf("ReconcileSections = %+v, quero %+v", got, tc.want)
+			}
+		})
 	}
 }
 
@@ -50,7 +112,7 @@ func TestLoadMissingFileIsSilent(t *testing.T) {
 	if err != nil {
 		t.Fatalf("arquivo ausente não é erro, veio %v", err)
 	}
-	if resolved := Resolve(got, Partial{}); resolved != Defaults() {
+	if resolved := Resolve(got, Partial{}); !reflect.DeepEqual(resolved, Defaults()) {
 		t.Errorf("sem arquivo = %+v, quero os padrões embutidos %+v", resolved, Defaults())
 	}
 	if _, err := os.Stat(path); !os.IsNotExist(err) {
@@ -76,7 +138,7 @@ func TestLoadInvalidFileReportsAndFallsBack(t *testing.T) {
 			if err == nil {
 				t.Error("arquivo inválido deveria reportar erro")
 			}
-			if resolved := Resolve(got, Partial{}); resolved != Defaults() {
+			if resolved := Resolve(got, Partial{}); !reflect.DeepEqual(resolved, Defaults()) {
 				t.Errorf("= %+v, quero os padrões embutidos %+v", resolved, Defaults())
 			}
 		})
@@ -130,10 +192,39 @@ func TestResolvePrecedence(t *testing.T) {
 
 	for _, tc := range tests {
 		t.Run(tc.name, func(t *testing.T) {
-			if got := Resolve(tc.file, tc.flags); got != tc.want {
+			if got := Resolve(tc.file, tc.flags); !reflect.DeepEqual(got, tc.want) {
 				t.Errorf("Resolve = %+v, quero %+v", got, tc.want)
 			}
 		})
+	}
+}
+
+// Empty enumera os campos à mão, porque uma camada com lista de seções não é
+// comparável com ==. Este teste é a rede: um campo novo esquecido lá faria a
+// preferência deixar de ser gravada, em silêncio.
+func TestEmptySeesEveryField(t *testing.T) {
+	if !(Partial{}).Empty() {
+		t.Fatal("a camada vazia deveria ser Empty")
+	}
+
+	full := reflect.ValueOf(Partial{
+		Justify:       new(bool),
+		Pages:         new(int),
+		TTL:           new(time.Duration),
+		RetentionDays: new(int),
+		Sections:      []Section{},
+	})
+	for i := range full.NumField() {
+		name := full.Type().Field(i).Name
+		if full.Field(i).IsNil() {
+			t.Fatalf("o teste não preencheu o campo %s", name)
+		}
+
+		var one Partial
+		reflect.ValueOf(&one).Elem().Field(i).Set(full.Field(i))
+		if one.Empty() {
+			t.Errorf("uma camada só com %s foi tratada como vazia — ela não seria gravada", name)
+		}
 	}
 }
 
