@@ -46,6 +46,11 @@ func (m Model) View() string {
 
 	var body string
 	switch {
+	// O painel ocupa a área do corpo: cabeçalho, barra de abas e barra de
+	// status continuam desenhados, e é na barra de abas que o efeito das
+	// mudanças de seção vai aparecer ao vivo.
+	case m.mode == modePanel:
+		body = m.viewPanel()
 	case t.loading && len(t.items) == 0:
 		body = m.centered("buscando " + t.section.Name + "…")
 	case t.err != nil && len(t.items) == 0:
@@ -276,6 +281,8 @@ func (m Model) viewStatus() string {
 		left = errStyle.Render("! " + m.statusText)
 	case m.statusText != "":
 		left = okStyle.Render("✓ " + m.statusText)
+	case m.mode == modePanel:
+		left = m.hints(avail, "h/l", "alternar", "j/k", "mover", "esc", "fechar", "?", "ajuda")
 	case m.mode == modeReader:
 		left = m.hints(avail, "j/k", "rolar", "J/K", "próxima", "o", "browser", "esc", "voltar", "?", "ajuda")
 	default:
@@ -332,6 +339,7 @@ func (m Model) viewHelp() string {
 		{"m", "alternar lida / não lida"},
 		{"s", "ver só os favoritos"},
 		{"t", "alternar texto justificado"},
+		{"c", "painel de preferências (na lista)"},
 		{"r", "recarregar o feed"},
 		{"?", "esta ajuda"},
 		{"ctrl+c", "sair"},
