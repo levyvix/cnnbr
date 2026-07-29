@@ -282,7 +282,14 @@ func (m Model) viewStatus() string {
 	case m.statusText != "":
 		left = okStyle.Render("✓ " + m.statusText)
 	case m.mode == modePanel:
-		left = m.hints(avail, "h/l", "alternar", "j/k", "mover", "esc", "fechar", "?", "ajuda")
+		// As dicas seguem a linha sob o cursor: `espaço` alterna em qualquer uma,
+		// mas só numa seção ele mostra e oculta, e só ali J/K reordenam.
+		if m.panelRows()[m.panel.cursor].section != nil {
+			left = m.hints(avail, "espaço", "ver/ocultar", "J/K", "reordenar",
+				"j/k", "mover", "esc", "fechar", "?", "ajuda")
+		} else {
+			left = m.hints(avail, "h/l", "alternar", "j/k", "mover", "esc", "fechar", "?", "ajuda")
+		}
 	case m.mode == modeReader:
 		left = m.hints(avail, "j/k", "rolar", "J/K", "próxima", "o", "browser", "esc", "voltar", "?", "ajuda")
 	default:
@@ -340,6 +347,8 @@ func (m Model) viewHelp() string {
 		{"s", "ver só os favoritos"},
 		{"t", "alternar texto justificado"},
 		{"c", "painel de preferências (na lista)"},
+		{"espaço", "mostrar / ocultar a seção (no painel)"},
+		{"J / K", "reordenar as seções (no painel)"},
 		{"r", "recarregar o feed"},
 		{"?", "esta ajuda"},
 		{"ctrl+c", "sair"},
