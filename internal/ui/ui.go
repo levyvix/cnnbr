@@ -24,6 +24,7 @@ type mode int
 const (
 	modeList mode = iota
 	modeReader
+	modePanel // preferências: uma terceira tela, não um booleano paralelo
 )
 
 // linesPerItem é a altura de cada item na lista (título + metadados + respiro).
@@ -36,6 +37,10 @@ type Config struct {
 	Cache  feed.Cache
 	Store  *store.Store
 	Notice string // aviso a mostrar no arranque, se houver
+
+	// SavePrefs grava as escolhas do leitor quando o painel fecha. Quem empilha
+	// as camadas e sabe onde fica o arquivo é o main.
+	SavePrefs func(prefs.Partial) error
 }
 
 // tab é uma seção do feed com seu próprio conteúdo e posição de leitura.
@@ -72,6 +77,8 @@ type Model struct {
 	statusText string
 	statusErr  bool
 	showHelp   bool
+
+	panel panelState
 
 	reader     viewport.Model
 	readingIdx int // índice em tabs[active].items da matéria aberta
@@ -148,6 +155,7 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			m.reader.SetContent(m.renderArticle())
 		}
 		m.clampCursor()
+		m.clampPanel()
 		return m, nil
 
 	case feedMsg:
@@ -215,15 +223,21 @@ func (m Model) handleFeed(res feed.Result) (tea.Model, tea.Cmd) {
 func (m Model) handleMouse(msg tea.MouseMsg) (tea.Model, tea.Cmd) {
 	switch msg.Button {
 	case tea.MouseButtonWheelDown:
-		if m.mode == modeReader {
+		switch m.mode {
+		case modeReader:
 			m.reader.ScrollDown(3)
-		} else {
+		case modePanel:
+			m.movePanelCursor(1)
+		default:
 			m.moveCursor(1)
 		}
 	case tea.MouseButtonWheelUp:
-		if m.mode == modeReader {
+		switch m.mode {
+		case modeReader:
 			m.reader.ScrollUp(3)
-		} else {
+		case modePanel:
+			m.movePanelCursor(-1)
+		default:
 			m.moveCursor(-1)
 		}
 	}
@@ -248,7 +262,14 @@ func (m Model) handleKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 	case "?":
 		m.showHelp = true
 		return m, nil
+	}
 
+	// O painel tem um mapa de teclas só: nem abas, nem dígitos, nem r.
+	if m.mode == modePanel {
+		return m.handlePanelKey(key)
+	}
+
+	switch key {
 	case "tab":
 		return m.cycleTab(1)
 	case "shift+tab":
@@ -355,6 +376,10 @@ func (m Model) handleListKey(key string) (tea.Model, tea.Cmd) {
 		return m.cycleTab(1)
 	case "h", "left":
 		return m.cycleTab(-1)
+
+	case "c":
+		m.openPanel()
+		return m, nil
 
 	case "enter":
 		if it, ok := m.selected(); ok {
@@ -505,16 +530,21 @@ func (m *Model) clampCursor() {
 		t.cursor = 0
 	}
 
-	per := m.itemsPerPage()
-	if t.cursor < t.top {
-		t.top = t.cursor
+	t.top = clampWindow(t.cursor, t.top, m.itemsPerPage())
+}
+
+// clampWindow desliza a janela de rolagem o mínimo para conter o cursor.
+func clampWindow(cursor, top, per int) int {
+	if cursor < top {
+		top = cursor
 	}
-	if t.cursor >= t.top+per {
-		t.top = t.cursor - per + 1
+	if cursor >= top+per {
+		top = cursor - per + 1
 	}
-	if t.top < 0 {
-		t.top = 0
+	if top < 0 {
+		return 0
 	}
+	return top
 }
 
 func (m *Model) moveCursor(delta int) {

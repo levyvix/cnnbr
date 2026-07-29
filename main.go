@@ -60,6 +60,9 @@ func main() {
 		Cache:  feed.DefaultCache(p.TTL),
 		Store:  st,
 		Notice: notice,
+		SavePrefs: func(chosen prefs.Partial) error {
+			return prefs.Save(prefsPath, prefs.Resolve(fromFile, chosen))
+		},
 	}, p)
 
 	prog := tea.NewProgram(model, tea.WithAltScreen(), tea.WithMouseCellMotion())
