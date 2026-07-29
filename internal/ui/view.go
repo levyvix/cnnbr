@@ -101,19 +101,23 @@ func (m Model) viewHeader() string {
 // viewTabs desenha a barra de seções, deslizando a janela visível quando as
 // abas não cabem na largura do terminal.
 func (m Model) viewTabs() string {
-	labels := make([]string, len(m.tabs))
-	for i, t := range m.tabs {
+	labels := make([]string, len(m.visible))
+	for pos, idx := range m.visible {
+		t := m.tabs[idx]
 		name := t.section.Name
 		switch {
-		case i == m.active:
-			labels[i] = tabActive.Render("▌" + name)
+		case idx == m.active:
+			labels[pos] = tabActive.Render("▌" + name)
 		case t.loading:
-			labels[i] = tabPending.Render(" " + name + "…")
+			labels[pos] = tabPending.Render(" " + name + "…")
 		case t.loaded:
-			labels[i] = tabIdle.Render(" " + name)
+			labels[pos] = tabIdle.Render(" " + name)
 		default:
-			labels[i] = tabPending.Render(" " + name)
+			labels[pos] = tabPending.Render(" " + name)
 		}
+	}
+	if len(labels) == 0 {
+		return ""
 	}
 
 	const sep = "  "
@@ -125,8 +129,9 @@ func (m Model) viewTabs() string {
 		avail = 1
 	}
 
-	start, end := m.active, m.active
-	total := width(m.active)
+	active := m.visiblePos()
+	start, end := active, active
+	total := width(active)
 	for {
 		grew := false
 		if end+1 < len(labels) && total+len(sep)+width(end+1) <= avail {
