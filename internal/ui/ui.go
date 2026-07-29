@@ -60,8 +60,9 @@ type Model struct {
 	width  int
 	height int
 
-	tabs   []tab
-	active int
+	tabs    []tab
+	visible []int // índices de tabs visíveis, na ordem da barra de abas
+	active  int   // índice em tabs
 
 	onlySaved bool
 
@@ -80,10 +81,12 @@ func New(cfg Config) Model {
 		cfg.Pages = 2
 	}
 	tabs := make([]tab, len(feed.Sections))
+	visible := make([]int, len(feed.Sections))
 	for i, s := range feed.Sections {
 		tabs[i] = tab{section: s}
+		visible[i] = i
 	}
-	return Model{cfg: cfg, tabs: tabs, reader: viewport.New(80, 20)}
+	return Model{cfg: cfg, tabs: tabs, visible: visible, reader: viewport.New(80, 20)}
 }
 
 // feedMsg carrega o resultado de uma busca de feed.
@@ -231,9 +234,9 @@ func (m Model) handleKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		return m, nil
 
 	case "tab":
-		return m.switchTab(m.active + 1)
+		return m.cycleTab(1)
 	case "shift+tab":
-		return m.switchTab(m.active - 1)
+		return m.cycleTab(-1)
 
 	case "r":
 		cmd := m.loadActive(true)
@@ -255,14 +258,14 @@ func (m Model) handleKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		return m, status("texto alinhado à esquerda")
 	}
 
-	// Dígitos saltam direto para a aba: 1 = primeira, 0 = décima.
+	// Dígitos saltam direto para a aba: 1 = primeira da barra, 0 = décima.
 	if len(key) == 1 && key[0] >= '0' && key[0] <= '9' {
 		n := int(key[0] - '0')
 		if n == 0 {
 			n = 10
 		}
-		if n <= len(m.tabs) {
-			return m.switchTab(n - 1)
+		if n <= len(m.visible) {
+			return m.switchTab(m.visible[n-1])
 		}
 		return m, nil
 	}
@@ -273,12 +276,34 @@ func (m Model) handleKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 	return m.handleListKey(key)
 }
 
-// switchTab troca a aba ativa, buscando o feed dela na primeira visita.
-func (m Model) switchTab(idx int) (tea.Model, tea.Cmd) {
-	if len(m.tabs) == 0 {
+// visiblePos é a posição da aba ativa na barra de abas.
+func (m Model) visiblePos() int {
+	for pos, idx := range m.visible {
+		if idx == m.active {
+			return pos
+		}
+	}
+	return 0
+}
+
+// cycleTab anda `delta` posições na barra de abas, dando a volta nas pontas.
+// A navegação passa pela lista de índices visíveis, nunca por m.tabs direto.
+func (m Model) cycleTab(delta int) (tea.Model, tea.Cmd) {
+	if len(m.visible) == 0 {
 		return m, nil
 	}
-	idx = (idx + len(m.tabs)) % len(m.tabs)
+	pos := (m.visiblePos() + delta) % len(m.visible)
+	if pos < 0 {
+		pos += len(m.visible)
+	}
+	return m.switchTab(m.visible[pos])
+}
+
+// switchTab troca a aba ativa, buscando o feed dela na primeira visita.
+func (m Model) switchTab(idx int) (tea.Model, tea.Cmd) {
+	if idx < 0 || idx >= len(m.tabs) {
+		return m, nil
+	}
 	if idx == m.active && m.mode == modeList {
 		return m, nil
 	}
@@ -309,9 +334,9 @@ func (m Model) handleListKey(key string) (tea.Model, tea.Cmd) {
 		m.clampCursor()
 
 	case "l", "right":
-		return m.switchTab(m.active + 1)
+		return m.cycleTab(1)
 	case "h", "left":
-		return m.switchTab(m.active - 1)
+		return m.cycleTab(-1)
 
 	case "enter":
 		if it, ok := m.selected(); ok {
