@@ -101,6 +101,10 @@ func (m Model) viewHeader() string {
 // viewTabs desenha a barra de seções, deslizando a janela visível quando as
 // abas não cabem na largura do terminal.
 func (m Model) viewTabs() string {
+	if len(m.visible) == 0 {
+		return ""
+	}
+
 	labels := make([]string, len(m.visible))
 	for pos, idx := range m.visible {
 		t := m.tabs[idx]
@@ -115,9 +119,6 @@ func (m Model) viewTabs() string {
 		default:
 			labels[pos] = tabPending.Render(" " + name)
 		}
-	}
-	if len(labels) == 0 {
-		return ""
 	}
 
 	const sep = "  "
@@ -240,7 +241,7 @@ func (m Model) viewItem(i int) []string {
 // renderArticle monta o conteúdo do leitor para a matéria aberta.
 func (m Model) renderArticle() string {
 	it := m.reading()
-	l := render.FitLayout(m.width, m.cfg.Justify)
+	l := render.FitLayout(m.width, m.prefs.Justify)
 
 	head := render.RenderHeader(render.Header{
 		Section:     it.Section,

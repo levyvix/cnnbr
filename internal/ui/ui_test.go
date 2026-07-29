@@ -7,6 +7,7 @@ import (
 	tea "github.com/charmbracelet/bubbletea"
 
 	"github.com/levyvix/cnnbr/internal/feed"
+	"github.com/levyvix/cnnbr/internal/prefs"
 	"github.com/levyvix/cnnbr/internal/store"
 )
 
@@ -14,7 +15,7 @@ import (
 // que o teste simplesmente não executa.
 func newTestModel(t *testing.T) Model {
 	t.Helper()
-	return New(Config{Store: store.New(filepath.Join(t.TempDir(), "state.json"))})
+	return New(Config{Store: store.New(filepath.Join(t.TempDir(), "state.json"))}, prefs.Defaults())
 }
 
 func keyMsg(key string) tea.KeyMsg {
@@ -91,6 +92,28 @@ func TestDigitBeyondSectionsDoesNothing(t *testing.T) {
 	m := press(t, newTestModel(t), "0")
 	if got := activeSlug(m); got != feed.Sections[0].Slug {
 		t.Errorf("seção ativa = %q, quero %q", got, feed.Sections[0].Slug)
+	}
+}
+
+func TestJustifyToggleIsTheOnlyPrefChosen(t *testing.T) {
+	m := newTestModel(t)
+	if !m.Chosen().Empty() {
+		t.Fatal("um modelo recém-criado não tem preferência para gravar")
+	}
+
+	m = press(t, m, "t")
+
+	chosen := m.Chosen()
+	if chosen.Justify == nil {
+		t.Fatal("t deveria registrar a justificação como escolhida")
+	}
+	if want := !prefs.Defaults().Justify; *chosen.Justify != want {
+		t.Errorf("justificação escolhida = %v, quero %v", *chosen.Justify, want)
+	}
+	// Só a justificação: gravar as outras eternizaria no arquivo o que veio de
+	// flag nesta execução.
+	if chosen.Pages != nil || chosen.TTL != nil || chosen.RetentionDays != nil {
+		t.Errorf("t mexeu em preferência que não pediu: %+v", chosen)
 	}
 }
 

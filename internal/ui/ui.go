@@ -15,6 +15,7 @@ import (
 
 	"github.com/levyvix/cnnbr/internal/article"
 	"github.com/levyvix/cnnbr/internal/feed"
+	"github.com/levyvix/cnnbr/internal/prefs"
 	"github.com/levyvix/cnnbr/internal/store"
 )
 
@@ -28,14 +29,13 @@ const (
 // linesPerItem é a altura de cada item na lista (título + metadados + respiro).
 const linesPerItem = 3
 
-// Config são as opções de execução do leitor.
+// Config são as dependências de execução que o main injeta. As escolhas do
+// leitor não vivem aqui — são preferências, e ficam em prefs.Prefs.
 type Config struct {
-	Pages   int           // páginas do feed a buscar (60 matérias por página)
-	TTL     time.Duration // validade do cache
-	Justify bool          // texto justificado nas duas margens
-	Client  *http.Client
-	Cache   feed.Cache
-	Store   *store.Store
+	Client *http.Client
+	Cache  feed.Cache
+	Store  *store.Store
+	Notice string // aviso a mostrar no arranque, se houver
 }
 
 // tab é uma seção do feed com seu próprio conteúdo e posição de leitura.
@@ -55,6 +55,9 @@ type tab struct {
 // Model é o estado da aplicação.
 type Model struct {
 	cfg Config
+
+	prefs  prefs.Prefs
+	chosen prefs.Partial // só o que o leitor mudou nesta sessão
 
 	mode   mode
 	width  int
@@ -76,9 +79,9 @@ type Model struct {
 }
 
 // New cria o modelo inicial com uma aba por seção.
-func New(cfg Config) Model {
-	if cfg.Pages < 1 {
-		cfg.Pages = 2
+func New(cfg Config, p prefs.Prefs) Model {
+	if p.Pages < 1 {
+		p.Pages = prefs.Defaults().Pages
 	}
 	tabs := make([]tab, len(feed.Sections))
 	visible := make([]int, len(feed.Sections))
@@ -86,8 +89,14 @@ func New(cfg Config) Model {
 		tabs[i] = tab{section: s}
 		visible[i] = i
 	}
-	return Model{cfg: cfg, tabs: tabs, visible: visible, reader: viewport.New(80, 20)}
+	return Model{cfg: cfg, prefs: p, tabs: tabs, visible: visible, reader: viewport.New(80, 20)}
 }
+
+// Chosen devolve só as preferências que o leitor mudou nesta sessão, para o
+// main gravar na saída ao lado do flush do store. É uma camada, não o estado
+// resolvido: gravar o resolvido eternizaria no arquivo o `-pages 8` que era
+// para valer só nesta execução.
+func (m Model) Chosen() prefs.Partial { return m.chosen }
 
 // feedMsg carrega o resultado de uma busca de feed.
 type feedMsg feed.Result
@@ -95,8 +104,15 @@ type feedMsg feed.Result
 // clearStatusMsg apaga o aviso da barra de status.
 type clearStatusMsg struct{}
 
+// Init dispara a primeira busca e, se o main tiver um aviso, o mostra aqui: com
+// a tela alternativa do bubbletea, escrever no stderr só apareceria depois que o
+// programa sai.
 func (m Model) Init() tea.Cmd {
-	return tea.Batch(m.loadActive(false), tea.EnterAltScreen)
+	cmds := []tea.Cmd{m.loadActive(false), tea.EnterAltScreen}
+	if m.cfg.Notice != "" {
+		cmds = append(cmds, statusErr("%s", m.cfg.Notice))
+	}
+	return tea.Batch(cmds...)
 }
 
 // loadActive busca a aba atual, a menos que ela já esteja carregada.
@@ -110,11 +126,11 @@ func (m *Model) loadActive(force bool) tea.Cmd {
 }
 
 func (m Model) fetch(s feed.Section, force bool) tea.Cmd {
-	cfg := m.cfg
+	cfg, pages := m.cfg, m.prefs.Pages
 	return func() tea.Msg {
 		ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
 		defer cancel()
-		return feedMsg(feed.Get(ctx, cfg.Client, cfg.Cache, s, cfg.Pages, force))
+		return feedMsg(feed.Get(ctx, cfg.Client, cfg.Cache, s, pages, force))
 	}
 }
 
@@ -246,13 +262,15 @@ func (m Model) handleKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		return m, tea.Batch(cmd, status("atualizando %s…", m.cur().section.Name))
 
 	case "t":
-		m.cfg.Justify = !m.cfg.Justify
+		justify := !m.prefs.Justify
+		m.prefs.Justify = justify
+		m.chosen.Justify = &justify
 		if m.mode == modeReader {
 			at := m.reader.YOffset
 			m.reader.SetContent(m.renderArticle())
 			m.reader.SetYOffset(at)
 		}
-		if m.cfg.Justify {
+		if m.prefs.Justify {
 			return m, status("texto justificado")
 		}
 		return m, status("texto alinhado à esquerda")
