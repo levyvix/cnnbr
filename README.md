@@ -13,7 +13,7 @@ abrir instantaneamente (inclusive offline).
 ## Seções
 
 Uma aba por seção: Home, Política, Nacional, Internacional, Economia,
-Esportes, Pop, Tecnologia, Saúde e Eleições. Cada aba busca o próprio feed
+Esportes, Pop, Tecnologia, Saúde e Eleições. Cada seção busca o próprio feed
 (`/feed/?cat=<id>`, que já inclui as subcategorias) e tem cache e posição de
 leitura independentes — o carregamento é preguiçoso, só na primeira visita.
 

@@ -95,19 +95,25 @@ func TestDigitBeyondSectionsDoesNothing(t *testing.T) {
 	}
 }
 
-func TestJustifyToggleMarksPrefsDirty(t *testing.T) {
+func TestJustifyToggleIsTheOnlyPrefChosen(t *testing.T) {
 	m := newTestModel(t)
-	if _, dirty := m.Prefs(); dirty {
+	if !m.Chosen().Empty() {
 		t.Fatal("um modelo recém-criado não tem preferência para gravar")
 	}
 
 	m = press(t, m, "t")
-	got, dirty := m.Prefs()
-	if !dirty {
-		t.Error("t deveria marcar as preferências como sujas")
+
+	chosen := m.Chosen()
+	if chosen.Justify == nil {
+		t.Fatal("t deveria registrar a justificação como escolhida")
 	}
-	if got.Justify != !prefs.Defaults().Justify {
-		t.Errorf("justificação = %v, quero %v", got.Justify, !prefs.Defaults().Justify)
+	if want := !prefs.Defaults().Justify; *chosen.Justify != want {
+		t.Errorf("justificação escolhida = %v, quero %v", *chosen.Justify, want)
+	}
+	// Só a justificação: gravar as outras eternizaria no arquivo o que veio de
+	// flag nesta execução.
+	if chosen.Pages != nil || chosen.TTL != nil || chosen.RetentionDays != nil {
+		t.Errorf("t mexeu em preferência que não pediu: %+v", chosen)
 	}
 }
 

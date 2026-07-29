@@ -56,8 +56,8 @@ type tab struct {
 type Model struct {
 	cfg Config
 
-	prefs      prefs.Prefs
-	prefsDirty bool // alguma preferência mudou nesta sessão e precisa ser gravada
+	prefs  prefs.Prefs
+	chosen prefs.Partial // só o que o leitor mudou nesta sessão
 
 	mode   mode
 	width  int
@@ -92,9 +92,11 @@ func New(cfg Config, p prefs.Prefs) Model {
 	return Model{cfg: cfg, prefs: p, tabs: tabs, visible: visible, reader: viewport.New(80, 20)}
 }
 
-// Prefs devolve as preferências da sessão e se elas mudaram. O main grava na
-// saída, ao lado do flush do store.
-func (m Model) Prefs() (prefs.Prefs, bool) { return m.prefs, m.prefsDirty }
+// Chosen devolve só as preferências que o leitor mudou nesta sessão, para o
+// main gravar na saída ao lado do flush do store. É uma camada, não o estado
+// resolvido: gravar o resolvido eternizaria no arquivo o `-pages 8` que era
+// para valer só nesta execução.
+func (m Model) Chosen() prefs.Partial { return m.chosen }
 
 // feedMsg carrega o resultado de uma busca de feed.
 type feedMsg feed.Result
@@ -260,8 +262,9 @@ func (m Model) handleKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		return m, tea.Batch(cmd, status("atualizando %s…", m.cur().section.Name))
 
 	case "t":
-		m.prefs.Justify = !m.prefs.Justify
-		m.prefsDirty = true
+		justify := !m.prefs.Justify
+		m.prefs.Justify = justify
+		m.chosen.Justify = &justify
 		if m.mode == modeReader {
 			at := m.reader.YOffset
 			m.reader.SetContent(m.renderArticle())

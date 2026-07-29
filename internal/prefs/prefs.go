@@ -39,6 +39,11 @@ type Partial struct {
 	RetentionDays *int
 }
 
+// Empty informa se a camada não traz nenhum campo.
+func (p Partial) Empty() bool {
+	return p == Partial{}
+}
+
 // Resolve empilha as três camadas: embutido, depois arquivo, depois flags.
 // É pura de propósito — o main fica só com a travessia das flags.
 func Resolve(file, flags Partial) Prefs {

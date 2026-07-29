@@ -19,10 +19,10 @@ import (
 func main() {
 	// Os padrões do flag são os padrões embutidos das preferências, para que
 	// `-h` mostre o que o programa realmente faz quando nada é passado.
-	d := prefs.Defaults()
-	pages := flag.Int("pages", d.Pages, "páginas do feed a buscar (60 matérias por página)")
-	ttl := flag.Duration("ttl", d.TTL, "validade do cache antes de buscar de novo")
-	justify := flag.Bool("justify", d.Justify, "justificar o texto nas duas margens (alterna com t)")
+	defaults := prefs.Defaults()
+	pages := flag.Int("pages", defaults.Pages, "páginas do feed a buscar (60 matérias por página)")
+	ttl := flag.Duration("ttl", defaults.TTL, "validade do cache antes de buscar de novo")
+	justify := flag.Bool("justify", defaults.Justify, "justificar o texto nas duas margens (alterna com t)")
 	flag.Parse()
 
 	prefsPath := prefs.DefaultPath()
@@ -73,9 +73,11 @@ func main() {
 		fmt.Fprintln(os.Stderr, "aviso: não consegui salvar o estado:", err)
 	}
 
+	// O que o leitor escolheu entra por cima do arquivo, não por cima do que as
+	// flags resolveram: uma flag vale para esta execução, não para sempre.
 	if m, ok := final.(ui.Model); ok {
-		if chosen, dirty := m.Prefs(); dirty {
-			if err := prefs.Save(prefsPath, chosen); err != nil {
+		if chosen := m.Chosen(); !chosen.Empty() {
+			if err := prefs.Save(prefsPath, prefs.Resolve(fromFile, chosen)); err != nil {
 				fmt.Fprintln(os.Stderr, "aviso: não consegui salvar as preferências:", err)
 			}
 		}

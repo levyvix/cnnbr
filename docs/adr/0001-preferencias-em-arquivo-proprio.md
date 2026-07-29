@@ -4,7 +4,7 @@ Aceita.
 
 ## Contexto
 
-Até aqui toda a configuração do cnnbr vivia em flags de CLI e morria ao sair:
+Até aqui toda escolha do leitor vivia em flags de CLI e morria ao sair:
 apertar `t` desjustificava o texto, e na execução seguinte a justificação
 ressuscitava. Precisávamos de um lugar para as **preferências** — as escolhas do
 leitor que sobrevivem ao encerramento, distintas das dependências de execução
