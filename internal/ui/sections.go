@@ -30,6 +30,7 @@ func (m Model) toggleSection(idx int) (tea.Model, tea.Cmd) {
 	t.hidden = !t.hidden
 	m.rebuildVisible()
 	m.recordSections()
+	m.rebuildAllViews() // a Home deixa de listar (ou volta a listar) as matérias dela
 
 	if t.hidden && idx == m.active {
 		// A aba ativa sumiu da barra: cai na visível mais próxima, sem fechar o

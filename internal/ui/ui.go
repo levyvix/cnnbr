@@ -534,9 +534,13 @@ func (m Model) reading() feed.Item { return m.tabs[m.active].items[m.readingIdx]
 // rebuildView recalcula os índices visíveis de uma aba conforme o filtro ativo.
 func (m *Model) rebuildView(idx int) {
 	t := &m.tabs[idx]
+	hidden := m.hiddenSlugs(idx)
 	t.view = t.view[:0]
 	for i, it := range t.items {
 		if m.onlySaved && !m.cfg.Store.IsSaved(it.ID()) {
+			continue
+		}
+		if hidden[feed.SlugOf(it.Link)] {
 			continue
 		}
 		t.view = append(t.view, i)
@@ -544,6 +548,26 @@ func (m *Model) rebuildView(idx int) {
 	if idx == m.active {
 		m.clampCursor()
 	}
+}
+
+// hiddenSlugs são os slugs das seções ocultas, e só valem para o feed geral: a
+// Home reúne matérias de todas as seções, então ocultar uma seção também tira as
+// matérias dela dali — senão o que o leitor mandou sumir continua na primeira
+// tela. Dentro de uma seção não há o que filtrar: o feed já vem só dela.
+func (m Model) hiddenSlugs(idx int) map[string]bool {
+	if m.tabs[idx].section.Cat != 0 {
+		return nil
+	}
+	var slugs map[string]bool
+	for i := range m.tabs {
+		if m.tabs[i].hidden {
+			if slugs == nil {
+				slugs = make(map[string]bool, len(m.tabs))
+			}
+			slugs[m.tabs[i].section.Slug] = true
+		}
+	}
+	return slugs
 }
 
 func (m *Model) rebuildAllViews() {
