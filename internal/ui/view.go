@@ -240,7 +240,7 @@ func (m Model) viewItem(i int) []string {
 // renderArticle monta o conteúdo do leitor para a matéria aberta.
 func (m Model) renderArticle() string {
 	it := m.reading()
-	l := render.FitLayout(m.width, m.cfg.Justify)
+	l := render.FitLayout(m.width, m.prefs.Justify)
 
 	head := render.RenderHeader(render.Header{
 		Section:     it.Section,

@@ -7,6 +7,7 @@ import (
 	tea "github.com/charmbracelet/bubbletea"
 
 	"github.com/levyvix/cnnbr/internal/feed"
+	"github.com/levyvix/cnnbr/internal/prefs"
 	"github.com/levyvix/cnnbr/internal/store"
 )
 
@@ -14,7 +15,7 @@ import (
 // que o teste simplesmente não executa.
 func newTestModel(t *testing.T) Model {
 	t.Helper()
-	return New(Config{Store: store.New(filepath.Join(t.TempDir(), "state.json"))})
+	return New(Config{Store: store.New(filepath.Join(t.TempDir(), "state.json"))}, prefs.Defaults())
 }
 
 func keyMsg(key string) tea.KeyMsg {
@@ -91,6 +92,22 @@ func TestDigitBeyondSectionsDoesNothing(t *testing.T) {
 	m := press(t, newTestModel(t), "0")
 	if got := activeSlug(m); got != feed.Sections[0].Slug {
 		t.Errorf("seção ativa = %q, quero %q", got, feed.Sections[0].Slug)
+	}
+}
+
+func TestJustifyToggleMarksPrefsDirty(t *testing.T) {
+	m := newTestModel(t)
+	if _, dirty := m.Prefs(); dirty {
+		t.Fatal("um modelo recém-criado não tem preferência para gravar")
+	}
+
+	m = press(t, m, "t")
+	got, dirty := m.Prefs()
+	if !dirty {
+		t.Error("t deveria marcar as preferências como sujas")
+	}
+	if got.Justify != !prefs.Defaults().Justify {
+		t.Errorf("justificação = %v, quero %v", got.Justify, !prefs.Defaults().Justify)
 	}
 }
 

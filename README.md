@@ -79,5 +79,7 @@ testes são pulados em vez de falhar.
 - cache dos feeds: `$XDG_CACHE_HOME/cnnbr/feed-<seção>.json`
 - lidas e favoritos: `$XDG_DATA_HOME/cnnbr/state.json`
 
-Marcações de leitura com mais de 60 dias são descartadas na inicialização;
+- preferências: `$XDG_CONFIG_HOME/cnnbr/config.json`
+
+Marcações de leitura com mais de 60 dias (o padrão) são descartadas na inicialização;
 favoritos ficam para sempre.
