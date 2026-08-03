@@ -48,6 +48,7 @@ go build -o cnnbr . && ./cnnbr
 | `enter` | abrir a matéria |
 | `esc` `q` | voltar (na lista, sai) |
 | `J` `K` | próxima / anterior sem sair do leitor |
+| `a` | ouvir a matéria em voz alta (no leitor) |
 | `o` | abrir no navegador |
 | `y` | copiar o link |
 | `f` | salvar nos favoritos |
@@ -62,11 +63,53 @@ go build -o cnnbr . && ./cnnbr
 
 A roda do mouse também rola, tanto na lista quanto no leitor.
 
+## Ouvir
+
+`a`, no leitor, lê a matéria aberta em voz alta; `a` de novo para. A síntese é
+local — sem rede, sem chave de API, sem custo — e o motor sai de uma
+auto-detecção no `PATH`:
+
+| plataforma | motor | rede de segurança |
+| --- | --- | --- |
+| Linux | `piper` com voz neural pt-BR | `espeak-ng` |
+| macOS | `say -v Luciana`, que já vem no sistema | — |
+| Windows | — | `a` explica que não há |
+
+O piper entrega áudio cru, sem cabeçalho, então ele precisa de um `aplay`
+(alsa-utils) ou `paplay` (pulseaudio-utils) para tocar. Sem esse par, o
+`espeak-ng` assume — e no Linux sem nenhum dos dois, `a` mostra um erro nomeando
+os instaláveis. Quando a fala sai pelo `espeak-ng` ou pelo `say` e a voz neural
+está ao alcance, a barra avisa uma vez por execução o que falta instalar.
+
+Na primeira vez que se aperta `a`, a voz é baixada sozinha, sem perguntar — são
+~63 MB do repositório do piper, com o progresso em `⇣ 34%` à direita da barra de
+status. `a` durante o download informa o percentual e **não** cancela. Se o
+download terminar e o leitor já tiver saído da matéria, nada é falado: a voz fica
+pronta para o próximo `a`.
+
+Falar está atado à matéria aberta. `esc`, `J`, `K`, trocar de seção e sair do
+programa interrompem a fala.
+
+A versão falada é, de propósito, um resumo da tela: entram o título, os
+intertítulos, os parágrafos e as citações; ficam fora as listas, as legendas de
+foto, os cards de "leia também" e os vídeos. Quem ouvir uma matéria de futebol
+não vai saber em que canal ela passa — a escalação e a ficha técnica, em voz
+alta, são um minuto de suplício.
+
+Enquanto a fala corre, o motor em uso aparece à direita da barra de status
+(`♪ faber`, `♪ espeak`, `♪ say`). Não há contador de blocos: como o texto inteiro
+vai para o motor de uma vez, ele corre à frente do áudio, e um `18/18` com
+20 s de som ainda por sair seria pior que indicador nenhum.
+
+A voz (`cadu`, `faber`, `jeff`, `edresson`) e a velocidade (`1×` a `2,5×`) se
+ajustam no painel (`c`), no grupo **Áudio**. Escolher uma voz grava a preferência
+e não baixa nada na hora.
+
 ## Preferências
 
 `c`, na lista, abre o painel de preferências: justificação, páginas do feed,
-validade do cache, retenção do histórico de leitura e as seções, sem sair do
-programa nem lembrar o nome de nenhuma flag.
+validade do cache, retenção do histórico de leitura, voz e velocidade da fala e
+as seções, sem sair do programa nem lembrar o nome de nenhuma flag.
 
 O painel ocupa a área do corpo, com o cabeçalho e a barra de abas à vista.
 `j`/`k` navegam, `h`/`l` (ou `espaço`) percorrem os valores de cada linha — que
@@ -93,6 +136,7 @@ Quando cada preferência passa a valer:
 | --- | --- |
 | justificação, validade do cache | na hora |
 | páginas do feed | na próxima busca (`r`, ou a primeira visita a uma seção) |
+| voz, velocidade da fala | na próxima fala (`a`) |
 | retenção do histórico | na próxima execução |
 
 As escolhas ficam em `$XDG_CONFIG_HOME/cnnbr/config.json`, que é JSON indentado
@@ -130,6 +174,8 @@ testes são pulados em vez de falhar.
 - cache dos feeds: `$XDG_CACHE_HOME/cnnbr/feed-<seção>.json`
 - lidas e favoritos: `$XDG_DATA_HOME/cnnbr/state.json`
 - preferências: `$XDG_CONFIG_HOME/cnnbr/config.json`
+- vozes do piper: `$XDG_DATA_HOME/cnnbr/voices/pt_BR-<voz>-<qualidade>.onnx`,
+  sempre em par com o `.onnx.json` ao lado — o piper não sobe sem os dois
 
 Marcações de leitura com mais de 60 dias (o padrão) são descartadas na inicialização;
 favoritos ficam para sempre. A retenção é ajustável no painel (`c`).

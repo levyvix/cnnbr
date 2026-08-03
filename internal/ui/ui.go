@@ -16,6 +16,7 @@ import (
 	"github.com/levyvix/cnnbr/internal/article"
 	"github.com/levyvix/cnnbr/internal/feed"
 	"github.com/levyvix/cnnbr/internal/prefs"
+	"github.com/levyvix/cnnbr/internal/speech"
 	"github.com/levyvix/cnnbr/internal/store"
 )
 
@@ -37,6 +38,11 @@ type Config struct {
 	Cache  feed.Cache
 	Store  *store.Store
 	Notice string // aviso a mostrar no arranque, se houver
+
+	// Speech fala a matéria aberta. É ponteiro no main porque o bubbletea copia
+	// o Model a cada Update, e um player por valor perderia os handles dos
+	// processos.
+	Speech Player
 
 	// SavePrefs grava as escolhas do leitor quando o painel fecha. Quem empilha
 	// as camadas e sabe onde fica o arquivo é o main.
@@ -83,7 +89,8 @@ type Model struct {
 	statusErr  bool
 	showHelp   bool
 
-	panel panelState
+	panel  panelState
+	speech speechState
 
 	reader     viewport.Model
 	readingIdx int // índice em tabs[active].items da matéria aberta
@@ -154,6 +161,9 @@ func (m Model) Init() tea.Cmd {
 	if m.cfg.Notice != "" {
 		cmds = append(cmds, statusErr("%s", m.cfg.Notice))
 	}
+	if cmd := waitSpeech(m.cfg.Speech); cmd != nil {
+		cmds = append(cmds, cmd)
+	}
 	return tea.Batch(cmds...)
 }
 
@@ -205,6 +215,9 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		m.statusText = ""
 		m.statusErr = false
 		return m, nil
+
+	case speechEvent:
+		return m.handleSpeechEvent(speech.Event(msg))
 
 	case tea.KeyMsg:
 		return m.handleKey(msg)
@@ -382,6 +395,8 @@ func (m Model) switchTab(idx int) (tea.Model, tea.Cmd) {
 		return m, nil
 	}
 
+	// Trocar de aba sai do leitor, e a fala está atada à matéria aberta.
+	m.stopSpeech()
 	m.active = idx
 	m.mode = modeList
 	m.rebuildView(idx)
@@ -470,8 +485,16 @@ func (m Model) handleListKey(key string) (tea.Model, tea.Cmd) {
 func (m Model) handleReaderKey(key string) (tea.Model, tea.Cmd) {
 	switch key {
 	case "q", "esc", "h", "left":
+		m.stopSpeech()
 		m.mode = modeList
 		return m, nil
+
+	case "a":
+		// A chamada vem antes do return: ela mexe em m.speech, e num
+		// `return m, m.toggleSpeech()` a ordem em que o Go avalia os dois
+		// operandos não é garantida — o m devolvido poderia ser o de antes.
+		cmd := m.toggleSpeech()
+		return m, cmd
 
 	case "j", "down":
 		m.reader.ScrollDown(1)
@@ -513,6 +536,7 @@ func (m Model) jumpArticle(delta int) (tea.Model, tea.Cmd) {
 	if next < 0 || next >= len(t.view) {
 		return m, status("fim da lista")
 	}
+	m.stopSpeech()
 	t.cursor = next
 	m.clampCursor()
 	m.readingIdx = t.view[t.cursor]

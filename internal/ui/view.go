@@ -24,6 +24,7 @@ var (
 	hintStyle     = lipgloss.NewStyle().Foreground(render.Muted)
 	errStyle      = lipgloss.NewStyle().Bold(true).Foreground(render.Red)
 	okStyle       = lipgloss.NewStyle().Foreground(render.Accent)
+	speechStyle   = lipgloss.NewStyle().Foreground(render.Accent)
 	dividerStyle  = lipgloss.NewStyle().Foreground(render.Faint)
 	tabActive     = lipgloss.NewStyle().Bold(true).Foreground(render.Red)
 	tabIdle       = lipgloss.NewStyle().Foreground(render.Muted)
@@ -270,6 +271,14 @@ func (m Model) viewStatus() string {
 	case len(t.view) > 0:
 		right = headerMeta.Render(fmt.Sprintf("%d/%d", t.cursor+1, len(t.view)))
 	}
+	if ind := m.speechIndicator(); ind != "" {
+		ind = speechStyle.Render(ind)
+		if right == "" {
+			right = ind
+		} else {
+			right = ind + "  " + right
+		}
+	}
 
 	// As dicas disputam a linha com o indicador da direita: só o essencial
 	// fica fixo, o resto vive em `?`.
@@ -291,7 +300,7 @@ func (m Model) viewStatus() string {
 			left = m.hints(avail, "h/l", "alternar", "j/k", "mover", "esc", "fechar", "?", "ajuda")
 		}
 	case m.mode == modeReader:
-		left = m.hints(avail, "j/k", "rolar", "J/K", "próxima", "o", "browser", "esc", "voltar", "?", "ajuda")
+		left = m.hints(avail, "j/k", "rolar", "J/K", "próxima", "a", "ouvir", "o", "browser", "esc", "voltar", "?", "ajuda")
 	default:
 		left = m.hints(avail, "enter", "ler", "f", "salvar", "s", "favoritos", "?", "ajuda")
 	}
@@ -340,6 +349,7 @@ func (m Model) viewHelp() string {
 		{"enter", "abrir a matéria"},
 		{"esc / q", "voltar (ou sair, na lista)"},
 		{"J / K", "próxima / anterior sem sair do leitor"},
+		{"a", "ouvir a matéria em voz alta (no leitor)"},
 		{"o", "abrir no navegador"},
 		{"y", "copiar o link"},
 		{"f", "salvar nos favoritos"},

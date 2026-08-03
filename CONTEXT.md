@@ -15,6 +15,18 @@ O rótulo de categoria exibido numa matéria — a categoria raiz na Home
 (`ESPORTES`), a subcategoria dentro de uma [[seção]] (`BRASILEIRÃO`).
 _Avoid_: subseção, tag
 
+**Motor**:
+O programa externo que fala a matéria — `piper`, `espeak-ng` ou `say` —
+escolhido por auto-detecção no `PATH`, não pelo leitor. Em Go é `Engine`, como
+[[seção]] é `Section`.
+_Avoid_: TTS, sintetizador
+
+**Voz**:
+O par de arquivos neurais pt-BR que o `piper` carrega (`faber`, `cadu`), baixado
+sob demanda e escolhido no painel. Só o piper tem [[voz]]; os outros [[motor]]es
+falam de um jeito só.
+_Avoid_: modelo, locutor
+
 **Preferência**:
 Uma escolha do leitor sobre como o programa se comporta, que sobrevive ao
 encerramento. Distinta das dependências de execução que o `main` injeta.
