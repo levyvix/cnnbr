@@ -8,11 +8,11 @@ import (
 	"github.com/levyvix/cnnbr/internal/speech"
 )
 
-// Player é o que a UI precisa de um sintetizador. É interface para os testes
+// Player é o que a UI precisa de um motor. É interface para os testes
 // poderem substituí-lo; o main injeta um *speech.Player.
 type Player interface {
 	Engine() (speech.Engine, error)
-	HasNeural() bool
+	NeuralMissing() string
 	Speak(lines []string, voice string, rate int) (speech.Outcome, error)
 	Stop()
 	Events() <-chan speech.Event
@@ -24,7 +24,7 @@ type Player interface {
 // segundos (clearStatusAfter), e o indicador tem de ficar enquanto a fala durar.
 //
 // Não há contador de blocos aqui, de propósito. Como escrevemos tudo no stdin de
-// uma vez e o sintetizador corre à frente do áudio, "blocos enviados" não é
+// uma vez e o motor corre à frente do áudio, "blocos enviados" não é
 // "blocos ouvidos": um 3/18 que bate 18/18 com 20 s de áudio ainda por sair é
 // pior que indicador nenhum, e o texto já está na tela para quem quer se
 // localizar.
@@ -104,9 +104,11 @@ func (m *Model) startSpeech() tea.Cmd {
 	}
 
 	m.speech.playing = true
-	if engine != speech.Piper && !m.cfg.Speech.HasNeural() && !m.speech.warned {
-		m.speech.warned = true
-		return status("há voz neural melhor: instale o piper")
+	if engine != speech.Piper && !m.speech.warned {
+		if missing := m.cfg.Speech.NeuralMissing(); missing != "" {
+			m.speech.warned = true
+			return status("há voz neural melhor: instale %s", missing)
+		}
 	}
 	return nil
 }
@@ -114,15 +116,17 @@ func (m *Model) startSpeech() tea.Cmd {
 // stopSpeech cala a fala. Falar está atado à matéria aberta: sair dela, pular
 // para outra ou trocar de seção passam por aqui.
 //
-// O download não para: ele não fala nada por conta própria, e quem terminou de
-// baixar 60 MB não deve recomeçar porque o leitor apertou esc.
+// O download em curso não para: ele não fala nada por conta própria, e quem já
+// baixou 60 MB não deve recomeçar porque o leitor apertou esc. Mas o pedido morre
+// aqui de qualquer jeito — quem saiu não deve ser surpreendido pela fala quando
+// os 63 MB chegarem, nem ao voltar para a mesma matéria sem apertar `a`.
 func (m *Model) stopSpeech() {
+	m.speech.wantID = ""
 	if m.cfg.Speech == nil || !m.speech.playing {
 		return
 	}
 	m.cfg.Speech.Stop()
 	m.speech.playing = false
-	m.speech.wantID = ""
 }
 
 // handleSpeechEvent trata o que o player avisou e rearma a espera.

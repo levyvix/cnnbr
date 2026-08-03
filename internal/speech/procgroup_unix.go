@@ -8,7 +8,7 @@ import (
 )
 
 // group põe o processo num grupo próprio, para que matar a fala mate o
-// sintetizador e o player de uma vez.
+// motor e o player de uma vez.
 func group(c *exec.Cmd) {
 	c.SysProcAttr = &syscall.SysProcAttr{Setpgid: true}
 }

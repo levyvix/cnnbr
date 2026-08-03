@@ -1,4 +1,4 @@
-// Package speech fala a matéria aberta com um sintetizador local: piper com voz
+// Package speech fala a matéria aberta com um motor local: piper com voz
 // neural, espeak-ng como rede de segurança, `say` no macOS. Sem rede, sem chave
 // de API, sem custo — o texto inteiro já chega no feed.
 package speech

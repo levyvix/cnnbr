@@ -73,9 +73,16 @@ func TestDetectPrefersNeuralOverESpeak(t *testing.T) {
 		want Engine
 		err  bool
 	}{
-		{"linux com os dois prefere o piper", "linux", []string{"piper", "espeak-ng"}, Piper, false},
-		{"linux só com piper", "linux", []string{"piper"}, Piper, false},
+		{"linux com os dois prefere o piper", "linux", []string{"piper", "aplay", "espeak-ng"}, Piper, false},
+		{"linux só com piper", "linux", []string{"piper", "aplay"}, Piper, false},
+		{"paplay serve igual", "linux", []string{"piper", "paplay"}, Piper, false},
 		{"linux sem piper cai no espeak", "linux", []string{"espeak-ng"}, ESpeak, false},
+		{
+			// O piper entrega PCM sem cabeçalho: sem player, ele não fala. Quem tem
+			// espeak-ng tem de ouvir por ele em vez de levar um erro.
+			"piper sem player cai no espeak", "linux", []string{"piper", "espeak-ng"}, ESpeak, false,
+		},
+		{"piper sem player e sem espeak", "linux", []string{"piper"}, "", true},
 		{"linux sem nenhum dos dois", "linux", nil, "", true},
 		{"macOS usa o say do sistema", "darwin", []string{"say"}, Say, false},
 		{"windows não tem suporte", "windows", []string{"piper", "espeak-ng"}, "", true},
@@ -119,14 +126,21 @@ func TestDetectErrorNamesBothInstalls(t *testing.T) {
 	}
 }
 
-func TestHasNeural(t *testing.T) {
-	fakePATH(t, "espeak-ng")
-	if HasNeural() {
-		t.Error("sem piper no PATH, HasNeural devia ser falso")
+// O aviso da voz neural precisa nomear o que falta, não sempre "o piper".
+func TestNeuralMissingNamesWhatIsMissing(t *testing.T) {
+	fakePATH(t, "espeak-ng", "aplay")
+	if got := NeuralMissing(); got != "piper" {
+		t.Errorf("sem piper, NeuralMissing = %q, quero piper", got)
 	}
+
 	fakePATH(t, "piper")
-	if !HasNeural() {
-		t.Error("com piper no PATH, HasNeural devia ser verdadeiro")
+	if got := NeuralMissing(); !strings.Contains(got, "aplay") {
+		t.Errorf("com piper e sem player, NeuralMissing = %q, quero nomear o aplay", got)
+	}
+
+	fakePATH(t, "piper", "aplay")
+	if got := NeuralMissing(); got != "" {
+		t.Errorf("com o par pronto, NeuralMissing = %q, quero vazio", got)
 	}
 }
 
@@ -223,7 +237,7 @@ func TestCommandsPerEngineAndRate(t *testing.T) {
 		t.Run(tc.name, func(t *testing.T) {
 			synth, player := Commands(tc.setup, tc.rate)
 			if !reflect.DeepEqual(synth, tc.wantSynth) {
-				t.Errorf("sintetizador = %q, quero %q", synth, tc.wantSynth)
+				t.Errorf("motor = %q, quero %q", synth, tc.wantSynth)
 			}
 			if !reflect.DeepEqual(player, tc.wantPlayer) {
 				t.Errorf("player = %q, quero %q", player, tc.wantPlayer)
@@ -268,7 +282,7 @@ func TestURLsAreThePredictableHuggingFacePair(t *testing.T) {
 	model, config := URLs(Voice{"faber", "medium"})
 	wantModel := "https://huggingface.co/rhasspy/piper-voices/resolve/main/pt/pt_BR/faber/medium/pt_BR-faber-medium.onnx"
 	if model != wantModel {
-		t.Errorf("URL do modelo = %q, quero %q", model, wantModel)
+		t.Errorf("URL da voz = %q, quero %q", model, wantModel)
 	}
 	if config != wantModel+".json" {
 		t.Errorf("URL da config = %q, quero %q", config, wantModel+".json")
@@ -434,11 +448,11 @@ func TestSpeakFeedsOneProcessAndReportsTheEnd(t *testing.T) {
 		t.Fatal(err)
 	}
 	if want := "--\nprimeira\nsegunda\nterceira\n"; string(data) != want {
-		t.Errorf("o sintetizador recebeu %q, quero %q", data, want)
+		t.Errorf("o motor recebeu %q, quero %q", data, want)
 	}
 	// Um único `--`: um processo por sessão de fala, não um por bloco.
 	if n := strings.Count(string(data), "--"); n != 1 {
-		t.Errorf("o sintetizador foi invocado %d vezes, quero 1 por sessão de fala", n)
+		t.Errorf("o motor foi invocado %d vezes, quero 1 por sessão de fala", n)
 	}
 }
 

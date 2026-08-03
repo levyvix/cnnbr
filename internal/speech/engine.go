@@ -9,7 +9,7 @@ import (
 	"strings"
 )
 
-// Engine é o sintetizador em uso nesta execução.
+// Engine é o motor em uso nesta execução.
 type Engine string
 
 const (
@@ -31,9 +31,9 @@ var ErrUnsupported = errors.New("ouvir a matéria não tem suporte neste sistema
 // neural na frente do espeak-ng; no macOS, o `say` que já vem no sistema; no
 // Windows, nada.
 //
-// Basta o piper estar instalado — a voz, se faltar, é baixada na hora do
-// primeiro `a`, e exigi-la aqui faria o espeak ganhar para sempre de quem
-// acabou de instalar o piper.
+// Não exigimos a voz em disco — ela é baixada na hora do primeiro `a`, e
+// exigi-la aqui faria o espeak ganhar para sempre de quem acabou de instalar o
+// piper.
 func Detect(goos string) (Engine, error) {
 	switch goos {
 	case "windows":
@@ -45,7 +45,7 @@ func Detect(goos string) (Engine, error) {
 		return "", fmt.Errorf("%w: não achei o say", ErrUnsupported)
 	}
 
-	if _, err := exec.LookPath(piperBin); err == nil {
+	if NeuralMissing() == "" {
 		return Piper, nil
 	}
 	if _, err := exec.LookPath(espeakBin); err == nil {
@@ -54,12 +54,21 @@ func Detect(goos string) (Engine, error) {
 	return "", fmt.Errorf("%w: instale piper (voz neural) ou espeak-ng", ErrUnsupported)
 }
 
-// HasNeural diz se o piper está instalado, independentemente do motor escolhido.
-// É o que sustenta o aviso, uma vez por execução, de que existe voz neural para
-// quem está ouvindo pelo espeak-ng ou pelo `say`.
-func HasNeural() bool {
-	_, err := exec.LookPath(piperBin)
-	return err == nil
+// NeuralMissing nomeia o que falta para haver voz neural, ou "" quando não falta
+// nada. Sustenta duas coisas: a escolha do motor, e o aviso de uma vez por
+// execução para quem está ouvindo pelo espeak-ng ou pelo `say`.
+//
+// O piper entrega PCM sem cabeçalho, então ele sozinho não fala: sem aplay nem
+// paplay, quem tem espeak-ng instalado tem de ouvir por ele em vez de levar um
+// erro.
+func NeuralMissing() string {
+	if _, err := exec.LookPath(piperBin); err != nil {
+		return "piper"
+	}
+	if _, err := findRawPlayer(); err != nil {
+		return "alsa-utils (aplay) ou pulseaudio-utils (paplay)"
+	}
+	return ""
 }
 
 // Label é o que o indicador da barra de status mostra: no piper, a voz em uso,
@@ -88,7 +97,7 @@ func findRawPlayer() (string, error) {
 // instalado.
 type Setup struct {
 	Engine Engine
-	Bin    string // caminho do sintetizador
+	Bin    string // caminho do motor
 
 	// ScaleFlag é como o piper instalado chama o length_scale, ou vazio quando
 	// não dá para saber. Ver scaleFlag.
@@ -109,7 +118,7 @@ func wpm(rate int) int { return baseWPM * rate / 100 }
 // a duração da fala é ir mais devagar. 1× é 1,0; 2,5× é 0,4.
 func lengthScale(rate int) float64 { return 100 / float64(rate) }
 
-// Commands monta o sintetizador e, quando o áudio sai cru, o player que o toca.
+// Commands monta o motor e, quando o áudio sai cru, o player que o toca.
 // O player vem vazio nos motores que falam pela própria conta.
 func Commands(s Setup, rate int) (synth, player []string) {
 	if rate <= 0 {

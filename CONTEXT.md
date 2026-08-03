@@ -16,13 +16,15 @@ O rótulo de categoria exibido numa matéria — a categoria raiz na Home
 _Avoid_: subseção, tag
 
 **Motor**:
-O sintetizador de voz que fala a matéria — `piper`, `espeak-ng` ou `say` —
-escolhido por auto-detecção no `PATH`, não pelo leitor.
-_Avoid_: engine, TTS, sintetizador
+O programa externo que fala a matéria — `piper`, `espeak-ng` ou `say` —
+escolhido por auto-detecção no `PATH`, não pelo leitor. Em Go é `Engine`, como
+[[seção]] é `Section`.
+_Avoid_: TTS, sintetizador
 
 **Voz**:
-O modelo neural pt-BR que o piper carrega (`faber`, `cadu`), baixado sob demanda
-e escolhido no painel. Só o piper tem [[voz]]; os outros motores têm uma só.
+O par de arquivos neurais pt-BR que o `piper` carrega (`faber`, `cadu`), baixado
+sob demanda e escolhido no painel. Só o piper tem [[voz]]; os outros [[motor]]es
+falam de um jeito só.
 _Avoid_: modelo, locutor
 
 **Preferência**:

@@ -19,7 +19,7 @@ import (
 type fakePlayer struct {
 	engine  speech.Engine
 	engErr  error
-	neural  bool
+	missing string // o que falta para haver voz neural
 	outcome speech.Outcome
 	speakEr error
 
@@ -33,11 +33,11 @@ type fakePlayer struct {
 }
 
 func newFakePlayer() *fakePlayer {
-	return &fakePlayer{engine: speech.Piper, neural: true, events: make(chan speech.Event, 8)}
+	return &fakePlayer{engine: speech.Piper, events: make(chan speech.Event, 8)}
 }
 
 func (f *fakePlayer) Engine() (speech.Engine, error) { return f.engine, f.engErr }
-func (f *fakePlayer) HasNeural() bool                { return f.neural }
+func (f *fakePlayer) NeuralMissing() string          { return f.missing }
 func (f *fakePlayer) Stop()                          { f.stops++ }
 func (f *fakePlayer) Events() <-chan speech.Event    { return f.events }
 
@@ -62,12 +62,12 @@ func readerWith(t *testing.T, p Player, pf prefs.Prefs) Model {
 	next, _ := New(cfg, pf).Update(tea.WindowSizeMsg{Width: 80, Height: 24})
 	m := next.(Model)
 
-	t2 := m.cur()
-	t2.items = []feed.Item{
+	tab := m.cur()
+	tab.items = []feed.Item{
 		{Title: "A primeira", Link: "https://cnnbrasil.com.br/politica/a-primeira/", HTML: "<p>um</p>"},
 		{Title: "A segunda", Link: "https://cnnbrasil.com.br/politica/a-segunda/", HTML: "<p>dois</p>"},
 	}
-	t2.loaded = true
+	tab.loaded = true
 	m.rebuildView(m.active)
 
 	m = press(t, m, "enter")
@@ -239,7 +239,7 @@ func TestSpeechWithoutAnEngineExplainsItself(t *testing.T) {
 // Uma vez por execução, e só quando a fala não sai pelo piper.
 func TestNeuralNoticeShowsOnce(t *testing.T) {
 	p := newFakePlayer()
-	p.engine, p.neural = speech.ESpeak, false
+	p.engine, p.missing = speech.ESpeak, "piper"
 
 	m := reader(t, p)
 	next, cmd := m.Update(keyMsg("a"))
@@ -259,16 +259,30 @@ func TestNeuralNoticeShowsOnce(t *testing.T) {
 	}
 }
 
-func TestNoNeuralNoticeWhenPiperIsInstalled(t *testing.T) {
+func TestNoNeuralNoticeWhenNothingIsMissing(t *testing.T) {
 	p := newFakePlayer()
-	p.engine, p.neural = speech.ESpeak, true // piper instalado, mas sem voz usável
+	p.engine, p.missing = speech.ESpeak, "" // piper instalado, mas sem voz usável
 
 	m := reader(t, p)
 	_, cmd := m.Update(keyMsg("a"))
 	if cmd != nil {
-		if msg, ok := cmd().(statusMsg); ok && strings.Contains(msg.text, "piper") {
-			t.Error("com piper instalado não há voz neural a anunciar")
+		if msg, ok := cmd().(statusMsg); ok && strings.Contains(msg.text, "instale") {
+			t.Error("com o piper pronto não há voz neural a anunciar")
 		}
+	}
+}
+
+// O aviso nomeia o que falta, e não sempre "o piper": numa máquina com piper mas
+// sem aplay, mandar instalar o piper seria mentira.
+func TestNeuralNoticeNamesWhatIsMissing(t *testing.T) {
+	p := newFakePlayer()
+	p.engine, p.missing = speech.ESpeak, "alsa-utils (aplay) ou pulseaudio-utils (paplay)"
+
+	m := reader(t, p)
+	_, cmd := m.Update(keyMsg("a"))
+	msg, ok := cmd().(statusMsg)
+	if !ok || !strings.Contains(msg.text, "alsa-utils") {
+		t.Errorf("o aviso deveria nomear o que falta, veio %v", cmd())
 	}
 }
 
@@ -366,6 +380,23 @@ func TestDownloadSpeaksOnlyIfStillOnTheSameArticle(t *testing.T) {
 		}
 		if m.speech.playing {
 			t.Error("não há fala fora do leitor")
+		}
+	})
+
+	// Quem saiu não deve ser surpreendido pela fala ao voltar sem apertar `a`.
+	t.Run("saiu e voltou para a mesma matéria: silêncio", func(t *testing.T) {
+		p := newFakePlayer()
+		p.outcome = speech.Fetching
+
+		m := press(t, reader(t, p), "a", "esc", "enter")
+		next, _ := m.Update(speechEvent{Kind: speech.Ready})
+		m = next.(Model)
+
+		if p.speaks != 1 {
+			t.Errorf("voltar para a matéria não deveria disparar a fala: %d pedidos", p.speaks)
+		}
+		if m.speech.playing {
+			t.Error("a fala precisa de um `a`, não de um enter")
 		}
 	})
 
@@ -477,6 +508,17 @@ func collect(cmd tea.Cmd, fn func(tea.Msg)) {
 	}
 	if msg != nil {
 		fn(msg)
+	}
+}
+
+// prefs não importa speech — é a camada de baixo —, então o padrão da voz está
+// escrito nos dois lugares. Este teste é o que impede os dois de divergirem.
+func TestDefaultVoiceMatchesTheEngineDefault(t *testing.T) {
+	if got := prefs.Defaults().Voice; got != speech.DefaultVoice {
+		t.Errorf("prefs.Defaults().Voice = %q, quero speech.DefaultVoice (%q)", got, speech.DefaultVoice)
+	}
+	if speech.VoiceOr(speech.DefaultVoice).Name != speech.DefaultVoice {
+		t.Errorf("speech.DefaultVoice (%q) não está na tabela de vozes", speech.DefaultVoice)
 	}
 }
 

@@ -75,9 +75,11 @@ auto-detecção no `PATH`:
 | macOS | `say -v Luciana`, que já vem no sistema | — |
 | Windows | — | `a` explica que não há |
 
-No Linux sem nenhum dos dois, `a` mostra um erro nomeando os dois instaláveis.
-Quando a fala sai pelo `espeak-ng` ou pelo `say` e o piper não está instalado, a
-barra avisa uma vez por execução que existe voz neural.
+O piper entrega áudio cru, sem cabeçalho, então ele precisa de um `aplay`
+(alsa-utils) ou `paplay` (pulseaudio-utils) para tocar. Sem esse par, o
+`espeak-ng` assume — e no Linux sem nenhum dos dois, `a` mostra um erro nomeando
+os instaláveis. Quando a fala sai pelo `espeak-ng` ou pelo `say` e a voz neural
+está ao alcance, a barra avisa uma vez por execução o que falta instalar.
 
 Na primeira vez que se aperta `a`, a voz é baixada sozinha, sem perguntar — são
 ~63 MB do repositório do piper, com o progresso em `⇣ 34%` à direita da barra de
@@ -96,7 +98,7 @@ alta, são um minuto de suplício.
 
 Enquanto a fala corre, o motor em uso aparece à direita da barra de status
 (`♪ faber`, `♪ espeak`, `♪ say`). Não há contador de blocos: como o texto inteiro
-vai para o sintetizador de uma vez, ele corre à frente do áudio, e um `18/18` com
+vai para o motor de uma vez, ele corre à frente do áudio, e um `18/18` com
 20 s de som ainda por sair seria pior que indicador nenhum.
 
 A voz (`cadu`, `faber`, `jeff`, `edresson`) e a velocidade (`1×` a `2,5×`) se

@@ -34,17 +34,16 @@ const DefaultVoice = "faber"
 // VoiceOr acha a voz pelo nome, caindo no padrão quando o nome não existe — um
 // config.json editado à mão não deve calar o programa.
 func VoiceOr(name string) Voice {
+	var fallback Voice
 	for _, v := range Voices {
 		if v.Name == name {
 			return v
 		}
-	}
-	for _, v := range Voices {
 		if v.Name == DefaultVoice {
-			return v
+			fallback = v
 		}
 	}
-	return Voices[0]
+	return fallback
 }
 
 // Model é o par de arquivos de uma voz já em disco, com a taxa de amostragem que
@@ -71,9 +70,14 @@ func Dir() string {
 	return filepath.Join(base, "cnnbr", "voices")
 }
 
+// fileName é o nome do .onnx da voz, que é também o último trecho da URL dela.
+func fileName(v Voice) string {
+	return fmt.Sprintf("pt_BR-%s-%s.onnx", v.Name, v.Quality)
+}
+
 // paths são os dois arquivos da voz dentro do diretório.
 func paths(dir string, v Voice) (model, config string) {
-	name := fmt.Sprintf("pt_BR-%s-%s.onnx", v.Name, v.Quality)
+	name := fileName(v)
 	return filepath.Join(dir, name), filepath.Join(dir, name+".json")
 }
 
@@ -85,8 +89,7 @@ const hfBase = "https://huggingface.co/rhasspy/piper-voices/resolve/main/pt/pt_B
 func URLs(v Voice) (model, config string) { return urls(hfBase, v) }
 
 func urls(base string, v Voice) (model, config string) {
-	name := fmt.Sprintf("pt_BR-%s-%s.onnx", v.Name, v.Quality)
-	model = fmt.Sprintf("%s/%s/%s/%s", base, v.Name, v.Quality, name)
+	model = fmt.Sprintf("%s/%s/%s/%s", base, v.Name, v.Quality, fileName(v))
 	return model, model + ".json"
 }
 

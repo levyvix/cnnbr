@@ -59,8 +59,9 @@ type Player struct {
 	events chan Event
 }
 
-// New cria o player. O diretório é onde as vozes ficam, e o cliente é o mesmo
-// que o main já injeta para buscar os feeds.
+// New cria o player. O diretório é onde as vozes ficam, e o cliente é só para
+// baixá-las — o main injeta um separado do dos feeds, porque o Timeout do
+// http.Client cobre a leitura do corpo inteiro e 63 MB não caberiam nos 30 s.
 func New(dir string, client *http.Client) *Player {
 	return &Player{
 		dir:    dir,
@@ -77,8 +78,9 @@ func (p *Player) Events() <-chan Event { return p.events }
 // Engine é o motor desta execução, ou o erro que explica por que não há nenhum.
 func (p *Player) Engine() (Engine, error) { return Detect(p.goos) }
 
-// HasNeural diz se o piper está instalado.
-func (p *Player) HasNeural() bool { return HasNeural() }
+// NeuralMissing nomeia o que falta para haver voz neural, ou "" quando nada
+// falta.
+func (p *Player) NeuralMissing() string { return NeuralMissing() }
 
 // Speak fala as linhas, parando antes o que estivesse falando. Sem a voz neural
 // em disco, dispara o download e devolve Fetching sem falar nada: quem chamou
@@ -131,14 +133,13 @@ func (p *Player) Speak(lines []string, voice string, rate int) (Outcome, error) 
 	return Speaking, nil
 }
 
-// start sobe um processo de sintetizador por sessão de fala e escreve todos os
-// blocos no stdin de uma vez. O buffer do pipe absorve, e o sintetizador
-// processa a linha seguinte enquanto a anterior toca — é daí que vem a latência
-// baixa.
+// start sobe um motor por sessão de fala e escreve todos os blocos no stdin de
+// uma vez. O buffer do pipe absorve, e o motor processa a linha seguinte
+// enquanto a anterior toca — é daí que vem a latência baixa.
 //
 // Não troque isto por "um processo por bloco", por dois motivos:
 //
-//  1. O piper recarregaria o modelo de 63 MB a cada bloco.
+//  1. O piper recarregaria a voz de 63 MB a cada bloco.
 //  2. Reiniciar o piper no meio de um aplay compartilhado desalinha o stream de
 //     PCM cru em um byte, e todo o resto do áudio vira ruído branco. Não há
 //     framing para o player ressincronizar.
@@ -153,7 +154,7 @@ func (p *Player) start(lines, synth, player []string) error {
 
 	// last é quem, ao sair, marca o fim natural da fala. Com piper é o player,
 	// que só termina quando o buffer de áudio drena; sem player, o próprio
-	// sintetizador.
+	// motor.
 	cmds := []*exec.Cmd{synthCmd}
 	last := synthCmd
 
@@ -203,7 +204,7 @@ func (p *Player) start(lines, synth, player []string) error {
 	p.procs = cmds
 	p.mu.Unlock()
 
-	// Numa goroutine porque o pipe enche: o sintetizador só drena enquanto fala.
+	// Numa goroutine porque o pipe enche: o motor só drena enquanto fala.
 	go func() {
 		_, _ = stdin.Write([]byte(strings.Join(lines, "\n") + "\n"))
 		_ = stdin.Close()
@@ -279,7 +280,20 @@ func (p *Player) download(v Voice) {
 	}()
 }
 
-func (p *Player) emit(e Event) { p.events <- e }
+// emit entrega o evento à UI. O progresso é descartável e vai sem bloquear: se a
+// UI ainda não drenou, o percentual seguinte serve igual, e travar a goroutine do
+// download num canal cheio seria pior. Os eventos de fim, não: perder um deixaria
+// o indicador aceso para sempre.
+func (p *Player) emit(e Event) {
+	if e.Kind == Progress {
+		select {
+		case p.events <- e:
+		default:
+		}
+		return
+	}
+	p.events <- e
+}
 
 // piperHelp lê o `--help` uma vez por execução, para descobrir como este piper
 // chama o length_scale. O binário sai com código de erro em algumas versões, e o
