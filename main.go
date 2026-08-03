@@ -12,6 +12,7 @@ import (
 
 	"github.com/levyvix/cnnbr/internal/feed"
 	"github.com/levyvix/cnnbr/internal/prefs"
+	"github.com/levyvix/cnnbr/internal/speech"
 	"github.com/levyvix/cnnbr/internal/store"
 	"github.com/levyvix/cnnbr/internal/ui"
 )
@@ -55,11 +56,18 @@ func main() {
 		st.Prune(retention)
 	}
 
+	client := &http.Client{Timeout: 30 * time.Second}
+	// As vozes têm um cliente próprio: o par do faber são 63 MB, e o Timeout do
+	// http.Client cobre a leitura do corpo inteiro, então os 30 s dos feeds
+	// cortariam o download no meio.
+	player := speech.New(speech.Dir(), &http.Client{Timeout: 15 * time.Minute})
+
 	model := ui.New(ui.Config{
-		Client: &http.Client{Timeout: 30 * time.Second},
+		Client: client,
 		Cache:  feed.DefaultCache(p.TTL),
 		Store:  st,
 		Notice: notice,
+		Speech: player,
 		SavePrefs: func(chosen prefs.Partial) error {
 			return prefs.Save(prefsPath, prefs.Resolve(fromFile, chosen))
 		},
@@ -67,6 +75,11 @@ func main() {
 
 	prog := tea.NewProgram(model, tea.WithAltScreen(), tea.WithMouseCellMotion())
 	final, err := prog.Run()
+
+	// Antes de qualquer outra coisa na saída: sem isto, sair do programa deixaria
+	// o espeak falando sozinho no terminal.
+	player.Stop()
+
 	if err != nil {
 		fmt.Fprintln(os.Stderr, "erro:", err)
 		os.Exit(1)

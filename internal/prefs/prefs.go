@@ -17,6 +17,8 @@ type Prefs struct {
 	TTL           time.Duration // validade do cache
 	RetentionDays int           // dias de histórico de leitura; 0 = nunca podar
 	Sections      []Section     // as seções na ordem escolhida; nil = a ordem do binário
+	Voice         string        // voz neural do piper, pelo nome
+	SpeechRate    int           // velocidade da fala em percentual: 100 é 1×, 250 é 2,5×
 }
 
 // Section é a escolha do leitor sobre uma seção: a posição dela na lista é a
@@ -78,6 +80,8 @@ func Defaults() Prefs {
 		Pages:         2,
 		TTL:           15 * time.Minute,
 		RetentionDays: 60,
+		Voice:         "faber",
+		SpeechRate:    100,
 	}
 }
 
@@ -91,12 +95,15 @@ type Partial struct {
 	TTL           *time.Duration
 	RetentionDays *int
 	Sections      []Section // nil = ausente; a lista, quando presente, é completa
+	Voice         *string
+	SpeechRate    *int
 }
 
 // Empty informa se a camada não traz nenhum campo.
 func (p Partial) Empty() bool {
 	return p.Justify == nil && p.Pages == nil && p.TTL == nil &&
-		p.RetentionDays == nil && p.Sections == nil
+		p.RetentionDays == nil && p.Sections == nil &&
+		p.Voice == nil && p.SpeechRate == nil
 }
 
 // Resolve empilha as três camadas: embutido, depois arquivo, depois flags.
@@ -118,6 +125,12 @@ func Resolve(file, flags Partial) Prefs {
 		}
 		if layer.Sections != nil {
 			p.Sections = layer.Sections
+		}
+		if layer.Voice != nil {
+			p.Voice = *layer.Voice
+		}
+		if layer.SpeechRate != nil {
+			p.SpeechRate = *layer.SpeechRate
 		}
 	}
 	return p
@@ -141,6 +154,8 @@ type document struct {
 	TTL           *string   `json:"cache_ttl,omitempty"`
 	RetentionDays *int      `json:"history_days,omitempty"`
 	Sections      []Section `json:"sections,omitempty"`
+	Voice         *string   `json:"voice,omitempty"`
+	SpeechRate    *int      `json:"speech_rate,omitempty"`
 }
 
 // DefaultPath aponta para $XDG_CONFIG_HOME/cnnbr/config.json. É deliberadamente
@@ -179,6 +194,8 @@ func Load(path string) (Partial, error) {
 		Pages:         doc.Pages,
 		RetentionDays: doc.RetentionDays,
 		Sections:      doc.Sections,
+		Voice:         doc.Voice,
+		SpeechRate:    doc.SpeechRate,
 	}
 	if doc.TTL != nil {
 		ttl, err := time.ParseDuration(*doc.TTL)
@@ -200,6 +217,8 @@ func Save(path string, p Prefs) error {
 		TTL:           &ttl,
 		RetentionDays: &p.RetentionDays,
 		Sections:      p.Sections,
+		Voice:         &p.Voice,
+		SpeechRate:    &p.SpeechRate,
 	}
 
 	// Indentado porque o arquivo é para ser editado à mão.

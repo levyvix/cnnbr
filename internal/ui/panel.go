@@ -11,6 +11,7 @@ import (
 	"github.com/charmbracelet/lipgloss"
 
 	"github.com/levyvix/cnnbr/internal/prefs"
+	"github.com/levyvix/cnnbr/internal/speech"
 )
 
 // panelState é a posição do leitor dentro do painel de preferências.
@@ -171,6 +172,72 @@ var prefRows = []panelRow{
 			m.chosen.TTL = &ttl
 		},
 	}},
+
+	{title: "Áudio"},
+
+	{pref: &preference{
+		label: "Voz",
+		// Escolher uma voz grava a preferência e não baixa nada. Um download de
+		// 63 MB violaria a invariante que o painel documenta sobre si mesmo —
+		// "cada mudança vale no momento da tecla" — e percorrer as quatro vozes
+		// com h/l dispararia quatro downloads.
+		note:   "baixa na primeira vez que ouvir",
+		values: voiceValues(),
+		current: func(p prefs.Prefs) int64 {
+			return int64(voiceIndex(speech.VoiceOr(p.Voice).Name))
+		},
+		// Inalcançável: VoiceOr resolve qualquer nome para um dos predefinidos.
+		format: func(n int64) string { return strconv.FormatInt(n, 10) },
+		apply: func(m *Model, v value) {
+			name := speech.Voices[v.n].Name
+			m.prefs.Voice = name
+			m.chosen.Voice = &name
+		},
+	}},
+
+	{pref: &preference{
+		label: "Velocidade",
+		// A velocidade também não pode valer na hora: o áudio já está no pipe.
+		note: "vale na próxima fala",
+		values: []value{
+			{"1×", 100}, {"1,25×", 125}, {"1,5×", 150}, {"1,75×", 175},
+			{"2×", 200}, {"2,25×", 225}, {"2,5×", 250},
+		},
+		current: func(p prefs.Prefs) int64 { return int64(p.SpeechRate) },
+		format:  formatRate,
+		apply: func(m *Model, v value) {
+			rate := int(v.n)
+			m.prefs.SpeechRate = rate
+			m.chosen.SpeechRate = &rate
+		},
+	}},
+}
+
+// voiceValues são as vozes do piper como ciclo do painel. O valor é o índice na
+// tabela, e não o nome, porque o painel compara valores em int64 — é assim que
+// ele acha o predefinido mais próximo.
+func voiceValues() []value {
+	values := make([]value, len(speech.Voices))
+	for i, v := range speech.Voices {
+		values[i] = value{v.Name, int64(i)}
+	}
+	return values
+}
+
+func voiceIndex(name string) int {
+	for i, v := range speech.Voices {
+		if v.Name == name {
+			return i
+		}
+	}
+	return 0
+}
+
+// formatRate escreve uma velocidade fora dos predefinidos com a vírgula decimal
+// que os rótulos usam: 1,4× e não 1.4×.
+func formatRate(n int64) string {
+	s := strconv.FormatFloat(float64(n)/100, 'f', -1, 64)
+	return strings.Replace(s, ".", ",", 1) + "×"
 }
 
 // panelRow é uma linha do painel: um subtítulo de grupo, que o cursor pula, uma

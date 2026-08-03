@@ -14,6 +14,7 @@ func TestSaveLoadRoundtrip(t *testing.T) {
 	want := Prefs{
 		Justify: false, Pages: 4, TTL: 30 * time.Minute, RetentionDays: 7,
 		Sections: []Section{{"home", true}, {"pop", false}, {"esportes", true}},
+		Voice:    "jeff", SpeechRate: 150,
 	}
 
 	if err := Save(path, want); err != nil {
@@ -149,6 +150,7 @@ func TestLoadInvalidFileReportsAndFallsBack(t *testing.T) {
 func TestResolvePrecedence(t *testing.T) {
 	boolp := func(b bool) *bool { return &b }
 	intp := func(n int) *int { return &n }
+	strp := func(s string) *string { return &s }
 	durp := func(d time.Duration) *time.Duration { return &d }
 
 	tests := []struct {
@@ -164,29 +166,34 @@ func TestResolvePrecedence(t *testing.T) {
 		{
 			name: "o arquivo vence o embutido",
 			file: Partial{Justify: boolp(false), Pages: intp(5)},
-			want: Prefs{Justify: false, Pages: 5, TTL: Defaults().TTL, RetentionDays: Defaults().RetentionDays},
+			want: mut(func(p *Prefs) { p.Justify, p.Pages = false, 5 }),
 		},
 		{
 			name:  "a flag vence o arquivo",
 			file:  Partial{Pages: intp(5), TTL: durp(time.Hour)},
 			flags: Partial{Pages: intp(1)},
-			want:  Prefs{Justify: Defaults().Justify, Pages: 1, TTL: time.Hour, RetentionDays: Defaults().RetentionDays},
+			want:  mut(func(p *Prefs) { p.Pages, p.TTL = 1, time.Hour }),
 		},
 		{
 			name:  "a flag vence o embutido",
 			flags: Partial{TTL: durp(5 * time.Minute)},
-			want:  Prefs{Justify: Defaults().Justify, Pages: Defaults().Pages, TTL: 5 * time.Minute, RetentionDays: Defaults().RetentionDays},
+			want:  mut(func(p *Prefs) { p.TTL = 5 * time.Minute }),
 		},
 		{
 			name: "flag ausente não sobrepõe o arquivo, mesmo com o valor zero",
 			file: Partial{Justify: boolp(false), RetentionDays: intp(0)},
-			want: Prefs{Justify: false, Pages: Defaults().Pages, TTL: Defaults().TTL, RetentionDays: 0},
+			want: mut(func(p *Prefs) { p.Justify, p.RetentionDays = false, 0 }),
 		},
 		{
 			name:  "a flag desliga o que o arquivo ligou",
 			file:  Partial{Justify: boolp(true)},
 			flags: Partial{Justify: boolp(false)},
-			want:  Prefs{Justify: false, Pages: Defaults().Pages, TTL: Defaults().TTL, RetentionDays: Defaults().RetentionDays},
+			want:  mut(func(p *Prefs) { p.Justify = false }),
+		},
+		{
+			name: "voz e velocidade atravessam a resolução como as demais",
+			file: Partial{Voice: strp("cadu"), SpeechRate: intp(150)},
+			want: mut(func(p *Prefs) { p.Voice, p.SpeechRate = "cadu", 150 }),
 		},
 	}
 
@@ -213,6 +220,8 @@ func TestEmptySeesEveryField(t *testing.T) {
 		TTL:           new(time.Duration),
 		RetentionDays: new(int),
 		Sections:      []Section{},
+		Voice:         new(string),
+		SpeechRate:    new(int),
 	})
 	for i := range full.NumField() {
 		name := full.Type().Field(i).Name
@@ -232,4 +241,13 @@ func TestDefaultJustifyIsOn(t *testing.T) {
 	if !Defaults().Justify {
 		t.Error("o padrão embutido de justificação é sim")
 	}
+}
+
+// mut devolve os padrões com uma alteração aplicada. Escrever os `want` assim
+// mantém as camadas novas de fora do teste de precedência: quem quiser testar
+// uma preferência nova acrescenta um caso, não edita os outros seis.
+func mut(f func(*Prefs)) Prefs {
+	p := Defaults()
+	f(&p)
+	return p
 }

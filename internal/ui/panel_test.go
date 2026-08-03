@@ -108,6 +108,15 @@ func TestPanelCyclesClosedValues(t *testing.T) {
 		{"retenção avança", "Retenção do histórico", []string{"l"}, mut(func(p *prefs.Prefs) { p.RetentionDays = 180 })},
 		{"retenção chega em nunca", "Retenção do histórico", []string{"l", "l"}, mut(func(p *prefs.Prefs) { p.RetentionDays = 0 })},
 		{"retenção volta", "Retenção do histórico", []string{"h"}, mut(func(p *prefs.Prefs) { p.RetentionDays = 30 })},
+
+		{"voz avança", "Voz", []string{"l"}, mut(func(p *prefs.Prefs) { p.Voice = "jeff" })},
+		{"voz volta", "Voz", []string{"h"}, mut(func(p *prefs.Prefs) { p.Voice = "cadu" })},
+		{"voz dá a volta pelo início", "Voz", []string{"h", "h"}, mut(func(p *prefs.Prefs) { p.Voice = "edresson" })},
+		{"voz dá a volta pelo fim", "Voz", repeat("l", 4), mut(func(p *prefs.Prefs) {})},
+
+		{"velocidade avança", "Velocidade", []string{"l"}, mut(func(p *prefs.Prefs) { p.SpeechRate = 125 })},
+		{"velocidade dá a volta pelo início", "Velocidade", []string{"h"}, mut(func(p *prefs.Prefs) { p.SpeechRate = 250 })},
+		{"velocidade dá a volta pelo fim", "Velocidade", repeat("l", 7), mut(func(p *prefs.Prefs) {})},
 	}
 
 	for _, tc := range tests {
@@ -363,5 +372,81 @@ func TestPanelNotesWhenPagesTakeEffect(t *testing.T) {
 	}
 	if findPref(t, "Retenção do histórico").note == "" {
 		t.Error("a linha de retenção precisa dizer que o valor vale na próxima execução")
+	}
+	// A voz baixa 63 MB e a velocidade já está no pipe: nenhuma das duas pode
+	// valer no momento da tecla, e a linha tem de dizer isso.
+	if findPref(t, "Voz").note == "" {
+		t.Error("a linha de voz precisa dizer que a voz baixa na primeira vez que ouvir")
+	}
+	if findPref(t, "Velocidade").note == "" {
+		t.Error("a linha de velocidade precisa dizer que o valor vale na próxima fala")
+	}
+}
+
+// Escolher uma voz grava a preferência e não baixa nada: é isso que preserva a
+// invariante que o painel documenta sobre si mesmo, e evita que percorrer as
+// quatro vozes com h/l dispare quatro downloads.
+func TestPanelVoiceRecordsWithoutDownloading(t *testing.T) {
+	p := newFakePlayer()
+	cfg := Config{Store: store.New(filepath.Join(t.TempDir(), "state.json")), Speech: p}
+	m := cursorOn(t, openPanel(t, New(cfg, prefs.Defaults())), "Voz")
+
+	// faber, jeff, edresson: três teclas, um só valor gravado.
+	m = press(t, m, "l", "l")
+
+	chosen := m.Chosen()
+	if chosen.Voice == nil {
+		t.Fatal("o painel não gravou a voz")
+	}
+	if *chosen.Voice != "edresson" {
+		t.Fatalf("voz escolhida = %q, quero edresson", *chosen.Voice)
+	}
+	if p.speaks != 0 {
+		t.Errorf("percorrer as vozes pediu %d falas", p.speaks)
+	}
+	if chosen.SpeechRate != nil {
+		t.Errorf("o painel gravou a velocidade sem ninguém mexer nela: %v", chosen.SpeechRate)
+	}
+}
+
+func TestPanelSpeechRateRecordsWhatWasChosen(t *testing.T) {
+	m := cursorOn(t, openPanel(t, newTestModel(t)), "Velocidade")
+	m = press(t, m, "l", "l")
+
+	chosen := m.Chosen()
+	if chosen.SpeechRate == nil || *chosen.SpeechRate != 150 {
+		t.Fatalf("velocidade escolhida = %v, quero 150", chosen.SpeechRate)
+	}
+	if chosen.Voice != nil {
+		t.Errorf("o painel gravou a voz sem ninguém mexer nela: %v", chosen.Voice)
+	}
+}
+
+func TestPanelShowsTheAudioGroup(t *testing.T) {
+	view := openPanel(t, newTestModel(t)).View()
+	for _, want := range []string{"Áudio", "Voz", "faber", "Velocidade", "1×"} {
+		if !strings.Contains(view, want) {
+			t.Errorf("o painel não desenhou %q", want)
+		}
+	}
+}
+
+// Uma velocidade fora dos predefinidos aparece como é, com a vírgula decimal dos
+// rótulos.
+func TestPanelShowsUnknownSpeechRateWithAComma(t *testing.T) {
+	tests := map[int]string{140: "1,4×", 175: "1,75×", 190: "1,9×", 100: "1×"}
+	for rate, want := range tests {
+		got := findPref(t, "Velocidade").display(mut(func(p *prefs.Prefs) { p.SpeechRate = rate }))
+		if got != want {
+			t.Errorf("velocidade %d = %q, quero %q", rate, got, want)
+		}
+	}
+}
+
+// Um config.json com uma voz que não existe não pode calar o painel.
+func TestPanelUnknownVoiceFallsBackToTheDefault(t *testing.T) {
+	got := findPref(t, "Voz").display(mut(func(p *prefs.Prefs) { p.Voice = "luciana" }))
+	if got != "faber" {
+		t.Errorf("voz desconhecida = %q, quero o padrão faber", got)
 	}
 }
