@@ -35,6 +35,9 @@ Ou, no clone:
 go build -o cnnbr . && ./cnnbr
 ```
 
+Não há mais nada a instalar para ler. Para *ouvir* (`a`), o motor de voz é uma
+dependência externa — mas `A` a instala para você. Veja [Ouvir](#ouvir).
+
 ## Atalhos
 
 | tecla | ação |
@@ -49,6 +52,7 @@ go build -o cnnbr . && ./cnnbr
 | `esc` `q` | voltar (na lista, sai) |
 | `J` `K` | próxima / anterior sem sair do leitor |
 | `a` | ouvir a matéria em voz alta (no leitor) |
+| `A` | instalar a voz neural (~220 MB, uma vez só) |
 | `o` | abrir no navegador |
 | `y` | copiar o link |
 | `f` | salvar nos favoritos |
@@ -67,25 +71,51 @@ A roda do mouse também rola, tanto na lista quanto no leitor.
 
 `a`, no leitor, lê a matéria aberta em voz alta; `a` de novo para. A síntese é
 local — sem rede, sem chave de API, sem custo — e o motor sai de uma
-auto-detecção no `PATH`:
+auto-detecção no `PATH`.
 
 | plataforma | motor | rede de segurança |
 | --- | --- | --- |
-| Linux | `piper` com voz neural pt-BR | `espeak-ng` |
+| Linux | `piper` + `aplay`/`paplay` | `espeak-ng` |
 | macOS | `say -v Luciana`, que já vem no sistema | — |
 | Windows | — | `a` explica que não há |
 
-O piper entrega áudio cru, sem cabeçalho, então ele precisa de um `aplay`
-(alsa-utils) ou `paplay` (pulseaudio-utils) para tocar. Sem esse par, o
-`espeak-ng` assume — e no Linux sem nenhum dos dois, `a` mostra um erro nomeando
-os instaláveis. Quando a fala sai pelo `espeak-ng` ou pelo `say` e a voz neural
-está ao alcance, a barra avisa uma vez por execução o que falta instalar.
+### `A` instala a voz neural
 
-Na primeira vez que se aperta `a`, a voz é baixada sozinha, sem perguntar — são
-~63 MB do repositório do piper, com o progresso em `⇣ 34%` à direita da barra de
-status. `a` durante o download informa o percentual e **não** cancela. Se o
-download terminar e o leitor já tiver saído da matéria, nada é falado: a voz fica
-pronta para o próximo `a`.
+O piper é um pacote Python, então o cnnbr consegue trazê-lo sozinho: **`A`, no
+leitor, instala o motor e a voz e começa a falar quando terminar.** São ~220 MB
+uma vez só — ~160 MB do piper com o `onnxruntime`, ~61 MB do par de arquivos da
+voz.
+
+Tem tecla própria, e não vai no `a`, porque criar um ambiente Python na máquina
+de alguém é mais invasivo que baixar um arquivo: pede um sim explícito. Quando a
+fala está saindo pelo `espeak-ng` e a voz neural está ao alcance, a barra oferece
+a tecla, uma vez por execução.
+
+O ambiente é isolado, em `$XDG_DATA_HOME/cnnbr/piper/`, criado com `uv` se ele
+existir e com `python3 -m venv` se não. Nada é instalado no Python do sistema —
+distro nenhuma deixa, e não é lugar nosso. Um `piper` que você já tenha no
+`PATH` continua ganhando do que o cnnbr instalou.
+
+Se preferir instalar você mesmo:
+
+```sh
+sudo pacman -S piper-tts alsa-utils      # Arch
+sudo apt install piper alsa-utils        # Debian/Ubuntu
+sudo pacman -S espeak-ng                 # ou só a rede de segurança
+```
+
+O piper entrega áudio cru, sem cabeçalho, então sem `aplay` (alsa-utils) ou
+`paplay` (pulseaudio-utils) ele não toca — e esses dois o cnnbr **não** instala,
+porque são pacotes de sistema. Nesse caso o `espeak-ng` assume, e a barra diz o
+que falta.
+
+### O download da voz
+
+Com o piper já presente, na primeira vez que se aperta `a` o par de arquivos da
+voz é buscado sem perguntar — ~61 MB, com o progresso em `⇣ 34%` à direita da
+barra de status. `a` durante o download informa o percentual e **não** cancela.
+Se o download terminar e o leitor já tiver saído da matéria, nada é falado: a voz
+fica pronta para o próximo `a`.
 
 Falar está atado à matéria aberta. `esc`, `J`, `K`, trocar de seção e sair do
 programa interrompem a fala.
@@ -176,6 +206,8 @@ testes são pulados em vez de falhar.
 - preferências: `$XDG_CONFIG_HOME/cnnbr/config.json`
 - vozes do piper: `$XDG_DATA_HOME/cnnbr/voices/pt_BR-<voz>-<qualidade>.onnx`,
   sempre em par com o `.onnx.json` ao lado — o piper não sobe sem os dois
+- o piper que o `A` instala: `$XDG_DATA_HOME/cnnbr/piper/` (um venv; apagar o
+  diretório desfaz a instalação, e `A` a refaz)
 
 Marcações de leitura com mais de 60 dias (o padrão) são descartadas na inicialização;
 favoritos ficam para sempre. A retenção é ajustável no painel (`c`).
