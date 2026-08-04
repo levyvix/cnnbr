@@ -48,7 +48,10 @@ func Detect(goos, base string) (Engine, error) {
 		return "", errors.New("não achei o say para ouvir a matéria")
 	}
 
-	if NeuralMissing(base) == "" {
+	// Um piper de verdade, não "nada falta": NeuralMissing também devolve vazio
+	// quando o piper está ausente mas dá para instalá-lo, e decidir por ele aqui
+	// escolhia o piper numa máquina que não tinha nenhum.
+	if neuralReady(base) {
 		return Piper, nil
 	}
 	if _, err := exec.LookPath(espeakBin); err == nil {
@@ -58,7 +61,7 @@ func Detect(goos, base string) (Engine, error) {
 	// deixa claro que a fala depende de um motor externo: a *voz* do piper baixa
 	// sozinha, o motor não.
 	switch {
-	case CanInstall():
+	case NeuralInstallable(base):
 		return "", errors.New("aperte A para instalar a voz neural, ou instale espeak-ng")
 	case PiperPath(base) != "":
 		// O piper está aqui; falta o que toca o PCM que ele produz.
@@ -89,16 +92,24 @@ func PiperPath(base string) string {
 // paplay, quem tem espeak-ng instalado tem de ouvir por ele em vez de levar um
 // erro.
 func NeuralMissing(base string) string {
-	if PiperPath(base) == "" {
-		if CanInstall() {
-			return ""
-		}
-		return "uv ou python3 (para o cnnbr baixar o piper) — ou o piper direto"
-	}
 	if _, err := findRawPlayer(); err != nil {
+		// Pacote de sistema: o cnnbr não instala, e sem ele o piper não toca.
 		return "alsa-utils (aplay) ou pulseaudio-utils (paplay)"
 	}
+	if PiperPath(base) == "" && !CanInstall() {
+		return "uv ou python3 (para o cnnbr baixar o piper) — ou o piper direto"
+	}
 	return ""
+}
+
+// neuralReady é a voz neural utilizável agora: o piper aqui e algo para tocar o
+// PCM cru que ele produz.
+func neuralReady(base string) bool {
+	if PiperPath(base) == "" {
+		return false
+	}
+	_, err := findRawPlayer()
+	return err == nil
 }
 
 // NeuralInstallable diz se falta só apertar a tecla: o piper não está aqui, mas

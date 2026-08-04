@@ -78,6 +78,23 @@ func TestDetectPrefersNeuralOverESpeak(t *testing.T) {
 		{"paplay serve igual", "linux", []string{"piper", "paplay"}, Piper, false},
 		{"linux sem piper cai no espeak", "linux", []string{"espeak-ng"}, ESpeak, false},
 		{
+			// O caso que faltava: dá para instalar o piper, mas ele não está aqui
+			// *ainda*. Escolher Piper agora daria "não achei o piper" na hora de
+			// falar; quem fala é o espeak até o `A` rodar.
+			"instalável não é instalado", "linux",
+			[]string{"espeak-ng", "aplay", "uv"}, ESpeak, false,
+		},
+		{
+			"instalável com python3 em vez de uv", "linux",
+			[]string{"espeak-ng", "aplay", "python3"}, ESpeak, false,
+		},
+		{
+			// Instalável e sem espeak: não há motor agora, e o erro tem de oferecer
+			// a tecla em vez de fingir que há piper.
+			"instalável e sem rede de segurança", "linux",
+			[]string{"aplay", "uv"}, "", true,
+		},
+		{
 			// O piper entrega PCM sem cabeçalho: sem player, ele não fala. Quem tem
 			// espeak-ng tem de ouvir por ele em vez de levar um erro.
 			"piper sem player cai no espeak", "linux", []string{"piper", "espeak-ng"}, ESpeak, false,
@@ -175,6 +192,38 @@ func TestNeuralMissingNamesOnlyWhatTheReaderMustInstall(t *testing.T) {
 			t.Error("não há o que instalar quando o piper já está aqui")
 		}
 	})
+}
+
+// A regressão que passou: Detect decidia por NeuralMissing, que devolve vazio
+// também quando o piper está só *instalável*. Resultado: escolhia Piper numa
+// máquina sem piper, e a fala morria em "não achei o piper".
+func TestDetectNeverPicksPiperWithoutAPiper(t *testing.T) {
+	base := t.TempDir()
+
+	for _, bins := range [][]string{
+		{"aplay", "uv"},
+		{"aplay", "python3"},
+		{"aplay", "uv", "espeak-ng"},
+		{"paplay", "python3", "espeak-ng"},
+	} {
+		t.Run(strings.Join(bins, "+"), func(t *testing.T) {
+			fakePATH(t, bins...)
+			if !NeuralInstallable(base) {
+				t.Fatal("o teste queria um cenário instalável")
+			}
+
+			engine, err := Detect("linux", base)
+			if engine == Piper {
+				t.Error("Detect escolheu o piper sem haver piper")
+			}
+			if err == nil && engine != ESpeak {
+				t.Errorf("Detect = %q, quero espeak ou erro", engine)
+			}
+			if err != nil && !strings.Contains(err.Error(), "A") {
+				t.Errorf("sem motor mas instalável, o erro %q deveria oferecer a tecla", err)
+			}
+		})
+	}
 }
 
 // Um piper que o cnnbr instalou vale como piper, e o do sistema ganha dele.
