@@ -17,17 +17,19 @@ import (
 
 // fakePlayer registra o que a UI pediu, sem processo nenhum.
 type fakePlayer struct {
-	engine  speech.Engine
-	engErr  error
-	missing string // o que falta para haver voz neural
-	outcome speech.Outcome
-	speakEr error
+	engine      speech.Engine
+	engErr      error
+	missing     string // o que falta e o leitor tem de instalar
+	installable bool   // dá para o cnnbr instalar o motor sozinho
+	outcome     speech.Outcome
+	speakEr     error
 
-	lines  []string
-	voice  string
-	rate   int
-	speaks int
-	stops  int
+	lines    []string
+	voice    string
+	rate     int
+	speaks   int
+	stops    int
+	installs int
 
 	events chan speech.Event
 }
@@ -38,6 +40,8 @@ func newFakePlayer() *fakePlayer {
 
 func (f *fakePlayer) Engine() (speech.Engine, error) { return f.engine, f.engErr }
 func (f *fakePlayer) NeuralMissing() string          { return f.missing }
+func (f *fakePlayer) NeuralInstallable() bool        { return f.installable }
+func (f *fakePlayer) InstallNeural(string)           { f.installs++ }
 func (f *fakePlayer) Stop()                          { f.stops++ }
 func (f *fakePlayer) Events() <-chan speech.Event    { return f.events }
 
@@ -508,6 +512,130 @@ func collect(cmd tea.Cmd, fn func(tea.Msg)) {
 	}
 	if msg != nil {
 		fn(msg)
+	}
+}
+
+// Instalar software e criar um ambiente Python na máquina de alguém pede um sim
+// explícito: `a` nunca instala nada, só `A`.
+func TestAOnlySpeaksAndNeverInstalls(t *testing.T) {
+	p := newFakePlayer()
+	p.engine, p.installable = speech.ESpeak, true
+
+	m := press(t, reader(t, p), "a")
+	if p.installs != 0 {
+		t.Errorf("`a` disparou %d instalações, quero 0", p.installs)
+	}
+	if !m.speech.playing {
+		t.Error("`a` deveria falar com o motor que já existe")
+	}
+}
+
+// E o aviso oferece a tecla, em vez de mandar a pessoa ao gerenciador de pacotes.
+func TestNoticeOffersTheInstallKey(t *testing.T) {
+	p := newFakePlayer()
+	p.engine, p.installable = speech.ESpeak, true
+
+	m := reader(t, p)
+	_, cmd := m.Update(keyMsg("a"))
+	msg, ok := cmd().(statusMsg)
+	if !ok || !strings.Contains(msg.text, "A") {
+		t.Errorf("o aviso deveria oferecer a tecla `A`, veio %v", cmd())
+	}
+}
+
+func TestShiftAInstallsTheNeuralEngine(t *testing.T) {
+	p := newFakePlayer()
+	p.engine, p.installable = speech.ESpeak, true
+
+	m := reader(t, p)
+	next, cmd := m.Update(keyMsg("A"))
+	m = next.(Model)
+
+	if p.installs != 1 {
+		t.Fatalf("`A` disparou %d instalações, quero 1", p.installs)
+	}
+	if !m.speech.downloading {
+		t.Error("`A` deveria acender o indicador de que algo está sendo trazido")
+	}
+	// Sem percentual: pip e uv não dão um número que preste.
+	if got := m.speechIndicator(); !strings.Contains(got, "piper") {
+		t.Errorf("indicador = %q, quero nomear a etapa", got)
+	}
+	if msg, ok := cmd().(statusMsg); !ok || !strings.Contains(msg.text, "MB") {
+		t.Errorf("`A` deveria dizer o tamanho do que vai baixar, veio %v", cmd())
+	}
+}
+
+func TestInstallStepsShowInTheIndicator(t *testing.T) {
+	p := newFakePlayer()
+	p.engine, p.installable = speech.ESpeak, true
+	m := press(t, reader(t, p), "A")
+
+	next, _ := m.Update(speechEvent{Kind: speech.Step, Text: "baixando o piper"})
+	m = next.(Model)
+	if got := m.speechIndicator(); got != "⇣ baixando o piper" {
+		t.Errorf("indicador = %q, quero a etapa", got)
+	}
+
+	// A voz, que tem percentual, volta a mostrá-lo.
+	next, _ = m.Update(speechEvent{Kind: speech.Step, Text: "baixando a voz faber"})
+	m = next.(Model)
+	next, _ = m.Update(speechEvent{Kind: speech.Progress, Pct: 42})
+	m = next.(Model)
+	if got := m.speechIndicator(); got != "⇣ 42%" {
+		t.Errorf("indicador = %q, quero ⇣ 42%%", got)
+	}
+}
+
+func TestShiftAAfterInstallIsAlreadyDone(t *testing.T) {
+	p := newFakePlayer() // piper, nada instalável
+	m := reader(t, p)
+
+	_, cmd := m.Update(keyMsg("A"))
+	if msg, ok := cmd().(statusMsg); !ok || msg.isErr {
+		t.Errorf("`A` com tudo pronto deveria só informar, veio %v", cmd())
+	}
+	if p.installs != 0 {
+		t.Error("não há o que instalar quando o piper já está aqui")
+	}
+}
+
+func TestShiftAWhenTheReaderMustInstallSomething(t *testing.T) {
+	p := newFakePlayer()
+	p.engine, p.missing = speech.ESpeak, "alsa-utils (aplay)"
+
+	m := reader(t, p)
+	_, cmd := m.Update(keyMsg("A"))
+	msg, ok := cmd().(statusMsg)
+	if !ok || !msg.isErr || !strings.Contains(msg.text, "alsa-utils") {
+		t.Errorf("`A` deveria dizer o que só o leitor pode instalar, veio %v", cmd())
+	}
+	if p.installs != 0 {
+		t.Error("não tentamos instalar o que não sabemos instalar")
+	}
+}
+
+// `A` no meio de um download informa e não recomeça nada.
+func TestShiftADuringTheDownloadDoesNotRestart(t *testing.T) {
+	p := newFakePlayer()
+	p.engine, p.installable = speech.ESpeak, true
+	m := press(t, reader(t, p), "A")
+
+	next, cmd := m.Update(keyMsg("A"))
+	m = next.(Model)
+	if p.installs != 1 {
+		t.Errorf("`A` de novo disparou %d instalações, quero seguir com 1", p.installs)
+	}
+	if _, ok := cmd().(statusMsg); !ok {
+		t.Errorf("`A` durante o download deveria informar, veio %v", cmd())
+	}
+}
+
+func TestInstallKeyIsInTheHelpOverlay(t *testing.T) {
+	next, _ := newTestModel(t).Update(tea.WindowSizeMsg{Width: 100, Height: 40})
+	m := press(t, next.(Model), "?")
+	if !strings.Contains(m.View(), "instalar a voz neural") {
+		t.Error("`A` precisa aparecer no overlay de ajuda")
 	}
 }
 

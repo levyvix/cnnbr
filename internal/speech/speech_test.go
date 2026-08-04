@@ -91,13 +91,16 @@ func TestDetectPrefersNeuralOverESpeak(t *testing.T) {
 	for _, tc := range tests {
 		t.Run(tc.name, func(t *testing.T) {
 			fakePATH(t, tc.bins...)
-			got, err := Detect(tc.goos)
+			got, err := Detect(tc.goos, t.TempDir())
 			if tc.err {
 				if err == nil {
 					t.Fatalf("Detect = %q, quero erro", got)
 				}
-				if !errors.Is(err, ErrUnsupported) {
-					t.Errorf("erro = %v, quero embrulhar ErrUnsupported", err)
+				// "não tem suporte" e "falta instalar" são coisas diferentes para
+				// quem lê: num Linux que só precisa de um pacote, dizer que o
+				// sistema não tem suporte manda a pessoa embora sem motivo.
+				if tc.goos != "windows" && strings.Contains(err.Error(), "não tem suporte") {
+					t.Errorf("erro = %q; falta instalar não é falta de suporte", err)
 				}
 				return
 			}
@@ -115,7 +118,7 @@ func TestDetectPrefersNeuralOverESpeak(t *testing.T) {
 // que não faz nada não ensina nada.
 func TestDetectErrorNamesBothInstalls(t *testing.T) {
 	fakePATH(t)
-	_, err := Detect("linux")
+	_, err := Detect("linux", t.TempDir())
 	if err == nil {
 		t.Fatal("quero erro sem nenhum motor instalado")
 	}
@@ -126,21 +129,131 @@ func TestDetectErrorNamesBothInstalls(t *testing.T) {
 	}
 }
 
-// O aviso da voz neural precisa nomear o que falta, não sempre "o piper".
-func TestNeuralMissingNamesWhatIsMissing(t *testing.T) {
-	fakePATH(t, "espeak-ng", "aplay")
-	if got := NeuralMissing(); got != "piper" {
-		t.Errorf("sem piper, NeuralMissing = %q, quero piper", got)
+// NeuralMissing nomeia só o que o *leitor* tem de instalar. O piper ausente não
+// conta quando o cnnbr consegue buscá-lo sozinho — aí quem responde é
+// NeuralInstallable, e a barra oferece a tecla.
+func TestNeuralMissingNamesOnlyWhatTheReaderMustInstall(t *testing.T) {
+	base := t.TempDir()
+
+	t.Run("sem piper e sem como instalá-lo", func(t *testing.T) {
+		fakePATH(t, "espeak-ng", "aplay")
+		got := NeuralMissing(base)
+		if !strings.Contains(got, "python3") {
+			t.Errorf("NeuralMissing = %q, quero nomear o que permitiria instalar", got)
+		}
+		if NeuralInstallable(base) {
+			t.Error("sem uv nem python3 não dá para instalar nada")
+		}
+	})
+
+	t.Run("sem piper, mas instalável", func(t *testing.T) {
+		fakePATH(t, "espeak-ng", "aplay", "python3")
+		if got := NeuralMissing(base); got != "" {
+			t.Errorf("NeuralMissing = %q, quero vazio: o cnnbr resolve sozinho", got)
+		}
+		if !NeuralInstallable(base) {
+			t.Error("com python3 e aplay, `A` deveria dar conta")
+		}
+	})
+
+	t.Run("piper sem player", func(t *testing.T) {
+		fakePATH(t, "piper", "python3")
+		if got := NeuralMissing(base); !strings.Contains(got, "aplay") {
+			t.Errorf("NeuralMissing = %q, quero nomear o aplay", got)
+		}
+		if NeuralInstallable(base) {
+			t.Error("instalar o piper não resolve a falta de player")
+		}
+	})
+
+	t.Run("tudo pronto", func(t *testing.T) {
+		fakePATH(t, "piper", "aplay")
+		if got := NeuralMissing(base); got != "" {
+			t.Errorf("NeuralMissing = %q, quero vazio", got)
+		}
+		if NeuralInstallable(base) {
+			t.Error("não há o que instalar quando o piper já está aqui")
+		}
+	})
+}
+
+// Um piper que o cnnbr instalou vale como piper, e o do sistema ganha dele.
+func TestPiperPathPrefersTheSystem(t *testing.T) {
+	base := t.TempDir()
+	venv := filepath.Join(PiperDir(base), venvBin)
+	if err := os.MkdirAll(venv, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	managed := filepath.Join(venv, "piper")
+	if err := os.WriteFile(managed, []byte("#!/bin/sh\n"), 0o755); err != nil {
+		t.Fatal(err)
 	}
 
-	fakePATH(t, "piper")
-	if got := NeuralMissing(); !strings.Contains(got, "aplay") {
-		t.Errorf("com piper e sem player, NeuralMissing = %q, quero nomear o aplay", got)
+	fakePATH(t, "aplay")
+	if got := PiperPath(base); got != managed {
+		t.Errorf("PiperPath = %q, quero o piper gerenciado %q", got, managed)
+	}
+	if got, err := Detect("linux", base); err != nil || got != Piper {
+		t.Errorf("Detect = %q (%v), quero o piper gerenciado", got, err)
 	}
 
-	fakePATH(t, "piper", "aplay")
-	if got := NeuralMissing(); got != "" {
-		t.Errorf("com o par pronto, NeuralMissing = %q, quero vazio", got)
+	fakePATH(t, "aplay", "piper")
+	if got := PiperPath(base); got == managed {
+		t.Error("o piper do sistema deveria ganhar do que o cnnbr instalou")
+	}
+}
+
+// Um .onnx sem bit de execução não é um piper utilizável.
+func TestManagedPiperNeedsToBeExecutable(t *testing.T) {
+	base := t.TempDir()
+	venv := filepath.Join(PiperDir(base), venvBin)
+	if err := os.MkdirAll(venv, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(venv, "piper"), []byte("nada"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	fakePATH(t, "aplay")
+	if got := PiperPath(base); got != "" {
+		t.Errorf("PiperPath = %q, quero vazio: o arquivo não é executável", got)
+	}
+}
+
+func TestInstallNeedsUvOrPython(t *testing.T) {
+	fakePATH(t)
+	err := Install(context.Background(), filepath.Join(t.TempDir(), "piper"), nil)
+	if err == nil {
+		t.Fatal("sem uv nem python3, instalar tem de falhar")
+	}
+	for _, want := range []string{"uv", "python3"} {
+		if !strings.Contains(err.Error(), want) {
+			t.Errorf("o erro %q não nomeia %q", err, want)
+		}
+	}
+}
+
+// Um pip que falha tem de explicar o motivo, não só "falhou".
+func TestInstallReportsTheToolOutput(t *testing.T) {
+	if runtime.GOOS == "windows" {
+		t.Skip("o python falso é um script de shell")
+	}
+	dir := t.TempDir()
+	script := "#!/bin/sh\necho 'ERROR: No matching distribution found' >&2\nexit 1\n"
+	if err := os.WriteFile(filepath.Join(dir, "python3"), []byte(script), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	t.Setenv("PATH", dir)
+
+	var steps []string
+	err := Install(context.Background(), filepath.Join(dir, "venv"), func(s string) { steps = append(steps, s) })
+	if err == nil {
+		t.Fatal("quero erro")
+	}
+	if !strings.Contains(err.Error(), "No matching distribution") {
+		t.Errorf("o erro %q não traz a saída da ferramenta", err)
+	}
+	if len(steps) == 0 {
+		t.Error("a instalação deveria relatar a etapa em curso")
 	}
 }
 

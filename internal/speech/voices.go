@@ -57,18 +57,26 @@ type Model struct {
 // baixar.
 var ErrMissing = errors.New("a voz não está em disco")
 
-// Dir é onde as vozes ficam: $XDG_DATA_HOME/cnnbr/voices.
-func Dir() string {
+// Base é onde a fala guarda o que baixa: $XDG_DATA_HOME/cnnbr. As vozes e o
+// piper gerenciado ficam em subdiretórios dela.
+func Base() string {
 	base := os.Getenv("XDG_DATA_HOME")
 	if base == "" {
 		home, err := os.UserHomeDir()
 		if err != nil {
-			return filepath.Join(os.TempDir(), "cnnbr", "voices")
+			return filepath.Join(os.TempDir(), "cnnbr")
 		}
 		base = filepath.Join(home, ".local", "share")
 	}
-	return filepath.Join(base, "cnnbr", "voices")
+	return filepath.Join(base, "cnnbr")
 }
+
+// VoicesDir é onde o par de arquivos de cada voz mora.
+func VoicesDir(base string) string { return filepath.Join(base, "voices") }
+
+// PiperDir é o ambiente Python que o cnnbr mantém quando ele mesmo instalou o
+// piper. Separado das vozes: apagar um não deve levar o outro.
+func PiperDir(base string) string { return filepath.Join(base, "piper") }
 
 // fileName é o nome do .onnx da voz, que é também o último trecho da URL dela.
 func fileName(v Voice) string {

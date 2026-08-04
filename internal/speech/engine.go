@@ -24,8 +24,11 @@ const (
 	sayBin    = "say"
 )
 
-// ErrUnsupported é a plataforma sem síntese nenhuma.
-var ErrUnsupported = errors.New("ouvir a matéria não tem suporte neste sistema")
+// Não há sentinel para "sem motor": nada no programa se ramifica nesse erro, só
+// a barra de status o mostra. E as três causas pedem frases diferentes — "sua
+// plataforma não serve" e "falta instalar" são coisas distintas para quem lê, e
+// juntá-las num prefixo comum foi o que fez a mensagem soar como se o Linux não
+// tivesse suporte.
 
 // Detect escolhe o motor por auto-detecção no PATH: no Linux, o piper com voz
 // neural na frente do espeak-ng; no macOS, o `say` que já vem no sistema; no
@@ -34,41 +37,78 @@ var ErrUnsupported = errors.New("ouvir a matéria não tem suporte neste sistema
 // Não exigimos a voz em disco — ela é baixada na hora do primeiro `a`, e
 // exigi-la aqui faria o espeak ganhar para sempre de quem acabou de instalar o
 // piper.
-func Detect(goos string) (Engine, error) {
+func Detect(goos, base string) (Engine, error) {
 	switch goos {
 	case "windows":
-		return "", fmt.Errorf("%w: não há síntese de voz no Windows", ErrUnsupported)
+		return "", errors.New("ouvir a matéria não tem suporte no Windows")
 	case "darwin":
 		if _, err := exec.LookPath(sayBin); err == nil {
 			return Say, nil
 		}
-		return "", fmt.Errorf("%w: não achei o say", ErrUnsupported)
+		return "", errors.New("não achei o say para ouvir a matéria")
 	}
 
-	if NeuralMissing() == "" {
+	if NeuralMissing(base) == "" {
 		return Piper, nil
 	}
 	if _, err := exec.LookPath(espeakBin); err == nil {
 		return ESpeak, nil
 	}
-	return "", fmt.Errorf("%w: instale piper (voz neural) ou espeak-ng", ErrUnsupported)
+	// Não há como falar. A mensagem nomeia o caminho mais curto para sair disso, e
+	// deixa claro que a fala depende de um motor externo: a *voz* do piper baixa
+	// sozinha, o motor não.
+	switch {
+	case CanInstall():
+		return "", errors.New("aperte A para instalar a voz neural, ou instale espeak-ng")
+	case PiperPath(base) != "":
+		// O piper está aqui; falta o que toca o PCM que ele produz.
+		return "", fmt.Errorf("instale %s para tocar a voz neural, ou espeak-ng", NeuralMissing(base))
+	default:
+		return "", errors.New("instale piper (voz neural) ou espeak-ng para ouvir a matéria")
+	}
 }
 
-// NeuralMissing nomeia o que falta para haver voz neural, ou "" quando não falta
-// nada. Sustenta duas coisas: a escolha do motor, e o aviso de uma vez por
-// execução para quem está ouvindo pelo espeak-ng ou pelo `say`.
+// PiperPath é o piper a usar: o do sistema na frente do que o cnnbr instalou,
+// para respeitar quem já mantém o seu. Vazio quando não há nenhum.
+func PiperPath(base string) string {
+	if path, err := exec.LookPath(piperBin); err == nil {
+		return path
+	}
+	return managedPiper(PiperDir(base))
+}
+
+// NeuralMissing nomeia o que o *leitor* precisa instalar para haver voz neural,
+// ou "" quando nada falta do lado dele. Sustenta a escolha do motor e o aviso de
+// uma vez por execução para quem está ouvindo pelo espeak-ng ou pelo `say`.
+//
+// O piper ausente não conta como falta quando dá para instalá-lo sozinho — nesse
+// caso quem responde é NeuralInstallable, e a barra oferece a tecla em vez de
+// mandar a pessoa ao gerenciador de pacotes.
 //
 // O piper entrega PCM sem cabeçalho, então ele sozinho não fala: sem aplay nem
 // paplay, quem tem espeak-ng instalado tem de ouvir por ele em vez de levar um
 // erro.
-func NeuralMissing() string {
-	if _, err := exec.LookPath(piperBin); err != nil {
-		return "piper"
+func NeuralMissing(base string) string {
+	if PiperPath(base) == "" {
+		if CanInstall() {
+			return ""
+		}
+		return "uv ou python3 (para o cnnbr baixar o piper) — ou o piper direto"
 	}
 	if _, err := findRawPlayer(); err != nil {
 		return "alsa-utils (aplay) ou pulseaudio-utils (paplay)"
 	}
 	return ""
+}
+
+// NeuralInstallable diz se falta só apertar a tecla: o piper não está aqui, mas
+// dá para o cnnbr instalá-lo, e há como tocar o que ele produzir.
+func NeuralInstallable(base string) bool {
+	if PiperPath(base) != "" || !CanInstall() {
+		return false
+	}
+	_, err := findRawPlayer()
+	return err == nil
 }
 
 // Label é o que o indicador da barra de status mostra: no piper, a voz em uso,

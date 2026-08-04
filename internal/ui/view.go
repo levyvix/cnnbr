@@ -350,6 +350,7 @@ func (m Model) viewHelp() string {
 		{"esc / q", "voltar (ou sair, na lista)"},
 		{"J / K", "próxima / anterior sem sair do leitor"},
 		{"a", "ouvir a matéria em voz alta (no leitor)"},
+		{"A", "instalar a voz neural (~220 MB, uma vez só)"},
 		{"o", "abrir no navegador"},
 		{"y", "copiar o link"},
 		{"f", "salvar nos favoritos"},

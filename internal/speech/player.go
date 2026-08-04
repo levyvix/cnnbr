@@ -16,7 +16,8 @@ type Kind int
 
 const (
 	Progress Kind = iota // percentual do download da voz
-	Ready                // voz baixada; quem pediu decide se ainda quer falar
+	Step                 // etapa da instalação do motor, que não tem percentual
+	Ready                // tudo pronto; quem pediu decide se ainda quer falar
 	Done                 // a fala terminou sozinha
 	Failed
 )
@@ -26,6 +27,7 @@ const (
 type Event struct {
 	Kind Kind
 	Pct  int
+	Text string // a etapa, no Step
 	Err  error
 }
 
@@ -43,7 +45,7 @@ const (
 // Update, e um player por valor perderia os handles dos processos — Stop mataria
 // uma cópia e o espeak continuaria falando.
 type Player struct {
-	dir    string
+	base   string // $XDG_DATA_HOME/cnnbr: as vozes e o piper gerenciado vivem aqui
 	client *http.Client
 	goos   string
 
@@ -52,19 +54,20 @@ type Player struct {
 	// gen distingue as sessões de fala: o que sobrou de uma sessão parada não
 	// avisa a UI que "terminou".
 	gen     int
-	loading bool   // download em curso
+	loading bool   // download da voz ou instalação do motor em curso
 	help    string // saída do `piper --help`, lida uma vez por execução
 	gotHelp bool
 
 	events chan Event
 }
 
-// New cria o player. O diretório é onde as vozes ficam, e o cliente é só para
-// baixá-las — o main injeta um separado do dos feeds, porque o Timeout do
-// http.Client cobre a leitura do corpo inteiro e 63 MB não caberiam nos 30 s.
-func New(dir string, client *http.Client) *Player {
+// New cria o player. A base é onde as vozes e o piper gerenciado ficam, e o
+// cliente é só para baixar as vozes — o main injeta um separado do dos feeds,
+// porque o Timeout do http.Client cobre a leitura do corpo inteiro e 63 MB não
+// caberiam nos 30 s.
+func New(base string, client *http.Client) *Player {
 	return &Player{
-		dir:    dir,
+		base:   base,
 		client: client,
 		goos:   runtime.GOOS,
 		// Com folga para o download não travar entre dois Updates da UI.
@@ -76,11 +79,21 @@ func New(dir string, client *http.Client) *Player {
 func (p *Player) Events() <-chan Event { return p.events }
 
 // Engine é o motor desta execução, ou o erro que explica por que não há nenhum.
-func (p *Player) Engine() (Engine, error) { return Detect(p.goos) }
+func (p *Player) Engine() (Engine, error) { return Detect(p.goos, p.base) }
 
-// NeuralMissing nomeia o que falta para haver voz neural, ou "" quando nada
-// falta.
-func (p *Player) NeuralMissing() string { return NeuralMissing() }
+// NeuralMissing nomeia o que o leitor precisa instalar para haver voz neural, ou
+// "" quando nada falta do lado dele.
+func (p *Player) NeuralMissing() string { return NeuralMissing(p.base) }
+
+// NeuralInstallable diz se o cnnbr consegue instalar o motor neural sozinho.
+func (p *Player) NeuralInstallable() bool { return NeuralInstallable(p.base) }
+
+// Busy diz se há instalação ou download em curso.
+func (p *Player) Busy() bool {
+	p.mu.Lock()
+	defer p.mu.Unlock()
+	return p.loading
+}
 
 // Speak fala as linhas, parando antes o que estivesse falando. Sem a voz neural
 // em disco, dispara o download e devolve Fetching sem falar nada: quem chamou
@@ -99,17 +112,17 @@ func (p *Player) Speak(lines []string, voice string, rate int) (Outcome, error) 
 	setup := Setup{Engine: engine}
 	switch engine {
 	case Piper:
-		if setup.Bin, err = exec.LookPath(piperBin); err != nil {
-			return 0, err
+		if setup.Bin = PiperPath(p.base); setup.Bin == "" {
+			return 0, errors.New("não achei o piper")
 		}
 		if setup.RawPlayer, err = findRawPlayer(); err != nil {
 			return 0, err
 		}
 		setup.ScaleFlag = scaleFlag(p.piperHelp(setup.Bin))
 
-		setup.Model, err = Find(p.dir, VoiceOr(voice))
+		setup.Model, err = Find(VoicesDir(p.base), VoiceOr(voice))
 		if errors.Is(err, ErrMissing) {
-			p.download(VoiceOr(voice))
+			p.fetch(VoiceOr(voice), false)
 			return Fetching, nil
 		}
 		if err != nil {
@@ -251,10 +264,18 @@ func (p *Player) Stop() {
 	}
 }
 
-// download baixa a voz em segundo plano. Um `a` durante o download não cancela
+// InstallNeural instala o motor neural e, na sequência, a voz — as duas coisas
+// que faltam para falar, num gesto só. Emite Ready quando dá para falar.
+//
+// Só é chamado por uma tecla dedicada: instalar software e criar um ambiente
+// Python na máquina de alguém é mais invasivo que baixar um arquivo de voz, e
+// pede um sim explícito.
+func (p *Player) InstallNeural(voice string) { p.fetch(VoiceOr(voice), true) }
+
+// fetch traz em segundo plano o que falta para falar. Um `a` no meio não cancela
 // nem empilha um segundo: jogar fora 20 MB já baixados num toque de tecla é caro
 // demais para um gesto tão fácil de fazer sem querer.
-func (p *Player) download(v Voice) {
+func (p *Player) fetch(v Voice, installEngine bool) {
 	p.mu.Lock()
 	if p.loading {
 		p.mu.Unlock()
@@ -264,9 +285,7 @@ func (p *Player) download(v Voice) {
 	p.mu.Unlock()
 
 	go func() {
-		err := Download(context.Background(), p.client, p.dir, v, func(pct int) {
-			p.emit(Event{Kind: Progress, Pct: pct})
-		})
+		err := p.bring(v, installEngine)
 
 		p.mu.Lock()
 		p.loading = false
@@ -278,6 +297,32 @@ func (p *Player) download(v Voice) {
 		}
 		p.emit(Event{Kind: Ready})
 	}()
+}
+
+// bring instala o motor, se pedido, e baixa a voz, se faltar. A ordem importa: o
+// motor primeiro, senão a voz chegaria sem nada para tocá-la.
+func (p *Player) bring(v Voice, installEngine bool) error {
+	ctx := context.Background()
+
+	if installEngine && PiperPath(p.base) == "" {
+		err := Install(ctx, PiperDir(p.base), func(step string) {
+			p.emit(Event{Kind: Step, Text: step})
+		})
+		if err != nil {
+			return err
+		}
+		if PiperPath(p.base) == "" {
+			return errors.New("instalei o piper e não achei o executável dele")
+		}
+	}
+
+	if _, err := Find(VoicesDir(p.base), v); !errors.Is(err, ErrMissing) {
+		return err // nil quando a voz já está aqui
+	}
+	p.emit(Event{Kind: Step, Text: "baixando a voz " + v.Name})
+	return Download(ctx, p.client, VoicesDir(p.base), v, func(pct int) {
+		p.emit(Event{Kind: Progress, Pct: pct})
+	})
 }
 
 // emit entrega o evento à UI. O progresso é descartável e vai sem bloquear: se a

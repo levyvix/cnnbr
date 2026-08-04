@@ -496,6 +496,10 @@ func (m Model) handleReaderKey(key string) (tea.Model, tea.Cmd) {
 		cmd := m.toggleSpeech()
 		return m, cmd
 
+	case "A":
+		cmd := m.installNeural()
+		return m, cmd
+
 	case "j", "down":
 		m.reader.ScrollDown(1)
 	case "k", "up":

@@ -60,7 +60,7 @@ func main() {
 	// As vozes têm um cliente próprio: o par do faber são 63 MB, e o Timeout do
 	// http.Client cobre a leitura do corpo inteiro, então os 30 s dos feeds
 	// cortariam o download no meio.
-	player := speech.New(speech.Dir(), &http.Client{Timeout: 15 * time.Minute})
+	player := speech.New(speech.Base(), &http.Client{Timeout: 15 * time.Minute})
 
 	model := ui.New(ui.Config{
 		Client: client,
