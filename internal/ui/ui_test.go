@@ -145,6 +145,25 @@ func TestHomeIdentifiesItemsBySource(t *testing.T) {
 	}
 }
 
+func TestSectionHeadlinesShowSource(t *testing.T) {
+	m := press(t, newTestModel(t), "2") // Política
+	m.tabs[m.active].items = []feed.Item{{
+		Source:   feed.SourceG1,
+		SourceID: feed.SourceG1ID,
+		Title:    "Uma matéria do G1",
+		Link:     "https://g1.globo.com/politica/noticia/2026/08/05/uma-materia.ghtml",
+		Sections: []string{"politica"},
+	}}
+	m.tabs[m.active].loaded = true
+	m.rebuildView(m.active)
+
+	next, _ := m.Update(tea.WindowSizeMsg{Width: 100, Height: 24})
+	view := next.(Model).View()
+	if !strings.Contains(view, feed.SourceG1) {
+		t.Fatalf("seção não identificou a fonte %q:\n%s", feed.SourceG1, view)
+	}
+}
+
 func repeat(key string, n int) []string {
 	keys := make([]string, n)
 	for i := range keys {

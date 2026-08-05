@@ -226,6 +226,82 @@ func TestParseAssignsSource(t *testing.T) {
 	if got := items[0].SourceID; got != "Outra fonte" {
 		t.Errorf("SourceID = %q, quero %q", got, "Outra fonte")
 	}
+	if !hasSection(items[0].Sections, "politica") {
+		t.Errorf("Sections = %v, quero política", items[0].Sections)
+	}
+}
+
+func TestClassifyUsesCategoriesAndText(t *testing.T) {
+	tests := []struct {
+		name string
+		item Item
+		want []string
+	}{
+		{
+			name: "categorias podem mapear para várias seções",
+			item: Item{Categories: []string{"Política", "Economia"}},
+			want: []string{"politica", "economia"},
+		},
+		{
+			name: "resumo entra quando não há categoria",
+			item: Item{Summary: "Novo aplicativo de tecnologia chega ao celular."},
+			want: []string{"tecnologia"},
+		},
+		{
+			name: "corpo entra quando não há categoria",
+			item: Item{HTML: "<p>Banco Central vê inflação e juros em queda.</p>"},
+			want: []string{"economia"},
+		},
+		{
+			name: "url não supera texto",
+			item: Item{
+				Link:  "https://example.com/politica/noticia",
+				Title: "Banco Central vê inflação e juros em queda",
+			},
+			want: []string{"economia"},
+		},
+		{
+			name: "título entra quando não há categoria",
+			item: Item{Title: "Banco Central vê inflação e juros em queda"},
+			want: []string{"economia"},
+		},
+		{
+			name: "sem confiança fica só na Home",
+			item: Item{Title: "Uma nota sem pista suficiente"},
+			want: nil,
+		},
+	}
+
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			got := Classify(tc.item)
+			if len(got) != len(tc.want) {
+				t.Fatalf("Classify = %v, quero %v", got, tc.want)
+			}
+			for _, want := range tc.want {
+				if !hasSection(got, want) {
+					t.Fatalf("Classify = %v, quero conter %q", got, want)
+				}
+			}
+		})
+	}
+}
+
+func TestItemsForSectionFiltersByGlobalSections(t *testing.T) {
+	items := []Item{
+		{Title: "política", Sections: []string{"politica"}},
+		{Title: "política e economia", Sections: []string{"politica", "economia"}},
+		{Title: "sem classificação"},
+	}
+
+	if got := ItemsForSection(Sections[0], items); len(got) != 3 {
+		t.Fatalf("Home = %d itens, quero todos", len(got))
+	}
+
+	got := ItemsForSection(Section{Slug: "economia", Cat: 1116}, items)
+	if len(got) != 1 || got[0].Title != "política e economia" {
+		t.Fatalf("Economia = %#v, quero só a matéria classificada nela", got)
+	}
 }
 
 func TestParseG1Feed(t *testing.T) {
@@ -276,6 +352,43 @@ func TestFetchSourceUsesSourceFeed(t *testing.T) {
 	if len(items) != 1 || items[0].Source != "Outra fonte" {
 		t.Fatalf("FetchSource = %#v, quero uma notícia da outra fonte", items)
 	}
+}
+
+func TestFetchSourceDoesNotAddCNNCategoryParamsToExternalFeeds(t *testing.T) {
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.URL.RawQuery != "" {
+			t.Errorf("query externa = %q, quero vazia", r.URL.RawQuery)
+		}
+		w.Header().Set("Content-Type", "application/rss+xml")
+		_, _ = w.Write([]byte(`<rss><channel><item>
+			<title>Uma notícia externa</title>
+			<link>https://outra-fonte.example/noticia</link>
+			<pubDate>Mon, 03 Aug 2026 12:00:00 -0300</pubDate>
+			<category>Política</category>
+		</item></channel></rss>`))
+	}))
+	t.Cleanup(server.Close)
+
+	items, err := FetchSource(context.Background(), server.Client(), Source{
+		ID:      "outra",
+		Name:    "Outra fonte",
+		FeedURL: server.URL,
+	}, 482, 3)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(items) != 1 {
+		t.Fatalf("FetchSource = %d itens, quero 1", len(items))
+	}
+}
+
+func hasSection(sections []string, want string) bool {
+	for _, section := range sections {
+		if section == want {
+			return true
+		}
+	}
+	return false
 }
 
 func httpHandler(body string) http.Handler {
