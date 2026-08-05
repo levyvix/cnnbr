@@ -183,7 +183,10 @@ func TestShowingASectionAgainKeepsWhatWasLoaded(t *testing.T) {
 	m := press(t, newTestModel(t), "2") // politica
 	idx := m.active
 
-	m.tabs[idx].items = []feed.Item{{Title: "uma"}, {Title: "outra"}}
+	m.tabs[idx].items = []feed.Item{
+		{Title: "uma", Sections: []string{"politica"}},
+		{Title: "outra", Sections: []string{"politica"}},
+	}
 	m.rebuildView(idx)
 	m.tabs[idx].loaded = true
 	m.tabs[idx].loading = false
@@ -411,19 +414,18 @@ func TestHomeDoesNotListArticlesFromHiddenSections(t *testing.T) {
 	}
 }
 
-func TestSectionListsEverythingItsFeedBrings(t *testing.T) {
-	// Dentro de uma seção o feed já vem só dela, e as ocultas não filtram nada:
-	// a aba de Esportes oculta continua navegável pelo painel.
+func TestSectionFiltersByGlobalClassification(t *testing.T) {
 	m := modelWithSections(t, []prefs.Section{{Slug: "politica", Visible: false}})
 	idx := 1 // politica
 	m.tabs[idx].items = []feed.Item{
-		{Title: "uma", Link: "https://www.cnnbrasil.com.br/politica/uma/"},
-		{Title: "outra", Link: "https://www.cnnbrasil.com.br/politica/outra/"},
+		{Title: "uma", Sections: []string{"politica"}},
+		{Title: "outra", Sections: []string{"politica", "economia"}},
+		{Title: "sem classificação"},
 	}
 	m.rebuildView(idx)
 
 	if got := len(m.tabs[idx].view); got != 2 {
-		t.Errorf("politica oculta listou %d matérias, quero as 2 do feed dela", got)
+		t.Errorf("politica listou %d matérias, quero as 2 classificadas nela", got)
 	}
 }
 

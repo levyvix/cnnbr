@@ -568,7 +568,10 @@ func (m *Model) rebuildView(idx int) {
 		if m.onlySaved && !m.cfg.Store.IsSaved(it.ID()) {
 			continue
 		}
-		if hidden[feed.SlugOf(it.Link)] {
+		if t.section.Cat != 0 && !feed.ItemInSection(it, t.section.Slug) {
+			continue
+		}
+		if hiddenBySections(it, hidden) {
 			continue
 		}
 		t.view = append(t.view, i)
@@ -596,6 +599,22 @@ func (m Model) hiddenSlugs(idx int) map[string]bool {
 		}
 	}
 	return slugs
+}
+
+func hiddenBySections(item feed.Item, hidden map[string]bool) bool {
+	if len(hidden) == 0 {
+		return false
+	}
+	sections := feed.SectionsOf(item)
+	if len(sections) == 0 {
+		return false
+	}
+	for _, section := range sections {
+		if !hidden[section] {
+			return false
+		}
+	}
+	return true
 }
 
 func (m *Model) rebuildAllViews() {

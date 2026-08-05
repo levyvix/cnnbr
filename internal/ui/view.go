@@ -220,20 +220,21 @@ func (m Model) viewItem(i int) []string {
 	}
 	title := style.Render(truncate.StringWithTail(it.Title, uint(titleWidth), "…"))
 
-	// Na Home a fonte distingue matérias de sites diferentes; dentro de uma
-	// seção a fonte é redundante e mostramos a editoria específica.
 	label := it.Source
 	if label == "" {
 		label = feed.SourceCNNBrasil
 	}
 	if t.section.Cat != 0 {
-		label = it.Section
+		editoria := it.Section
 		if it.Subsection != "" {
-			label = it.Subsection
+			editoria = it.Subsection
+		}
+		if editoria != "" && editoria != "Notícias" {
+			label += " · " + editoria
 		}
 	}
 
-	meta := []string{strings.ToUpper(label)}
+	meta := []string{label}
 	if rel := relativeTime(it.Published); rel != "" {
 		meta = append(meta, rel)
 	}

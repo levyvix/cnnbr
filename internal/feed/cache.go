@@ -22,7 +22,7 @@ type Cache struct {
 
 // cacheVersion invalida o cache quando o formato de Item muda — sem isso, um
 // campo novo só apareceria depois que o TTL expirasse.
-const cacheVersion = 3
+const cacheVersion = 4
 
 const cacheRetention = 7 * 24 * time.Hour
 
@@ -183,6 +183,7 @@ func GetSource(ctx context.Context, client *http.Client, c Cache, source Source,
 		}
 		return Result{Section: s, Err: err}
 	}
+	items = ItemsForSection(s, items)
 
 	now := nowFn()
 	// Falha ao gravar o cache não impede a leitura.

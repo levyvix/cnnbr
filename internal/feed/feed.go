@@ -15,6 +15,7 @@ import (
 	"strconv"
 	"strings"
 	"time"
+	"unicode"
 
 	"golang.org/x/net/html/charset"
 )
@@ -104,6 +105,11 @@ var ExternalSources = []Source{
 	Poder360Source,
 }
 
+// AllSources devolve as fontes canônicas, na ordem fixa do leitor.
+func AllSources() []Source {
+	return append([]Source{CNNBrasilSource}, ExternalSources...)
+}
+
 func (s Source) key() string {
 	if s.ID != "" {
 		return s.ID
@@ -111,13 +117,11 @@ func (s Source) key() string {
 	return s.Name
 }
 
-// SourcesFor devolve as fontes que alimentam uma seção. Só a Home agrega as
-// fontes externas; as demais continuam sendo recortes do feed da CNN Brasil.
+// SourcesFor devolve as fontes que alimentam uma seção. Todas as seções usam as
+// fontes validadas; a filtragem por seção acontece depois do parse, pela
+// taxonomia global.
 func SourcesFor(s Section) []Source {
-	if s.Cat == 0 {
-		return append([]Source{CNNBrasilSource}, ExternalSources...)
-	}
-	return []Source{CNNBrasilSource}
+	return AllSources()
 }
 
 const userAgent = "Mozilla/5.0 (X11; Linux x86_64) cnnbr/0.1"
@@ -133,6 +137,7 @@ type Item struct {
 	Summary    string
 	Section    string
 	Subsection string // editoria mais específica, ex. "Brasileirão" em Esportes
+	Sections   []string
 	Categories []string
 	HTML       string // conteúdo de content:encoded
 }
@@ -173,6 +178,10 @@ func Fetch(ctx context.Context, client *http.Client, cat, pages int) ([]Item, er
 // FetchSource busca páginas de uma fonte RSS e devolve os itens deduplicados.
 func FetchSource(ctx context.Context, client *http.Client, source Source, cat, pages int) ([]Item, error) {
 	if pages < 1 {
+		pages = 1
+	}
+	if !sourceUsesCNNCategories(source) {
+		cat = 0
 		pages = 1
 	}
 
@@ -236,6 +245,193 @@ func fetchPage(ctx context.Context, client *http.Client, source Source, cat, pag
 	return ParseSource(resp.Body, source)
 }
 
+func sourceUsesCNNCategories(source Source) bool {
+	return source.key() == SourceCNNBrasilID
+}
+
+// ItemsForSection filtra uma lista já parseada pela taxonomia global. A Home
+// aceita tudo; seções específicas só aceitam matérias classificadas com
+// confiança para aquele slug.
+func ItemsForSection(section Section, items []Item) []Item {
+	if section.Cat == 0 {
+		return items
+	}
+	out := make([]Item, 0, len(items))
+	for _, item := range items {
+		if ItemInSection(item, section.Slug) {
+			out = append(out, item)
+		}
+	}
+	return out
+}
+
+func ItemInSection(item Item, slug string) bool {
+	for _, section := range SectionsOf(item) {
+		if section == slug {
+			return true
+		}
+	}
+	return false
+}
+
+// SectionsOf devolve as seções globais da matéria, recalculando quando a
+// matéria veio de um cache antigo que ainda não guardava esse campo.
+func SectionsOf(item Item) []string {
+	if len(item.Sections) > 0 {
+		return item.Sections
+	}
+	return Classify(item)
+}
+
+// Classify classifica a matéria nas seções globais. Categorias oficiais do RSS
+// vêm primeiro e podem mapear a matéria para mais de uma seção; quando elas
+// faltam, usamos regras determinísticas sobre URL, título, resumo e corpo
+// disponível. Sem confiança, devolve nil para que a matéria apareça só na Home.
+func Classify(item Item) []string {
+	seen := make(map[string]bool)
+	var sections []string
+	add := func(slug string) {
+		if slug == "" || seen[slug] {
+			return
+		}
+		seen[slug] = true
+		sections = append(sections, slug)
+	}
+
+	for _, category := range item.Categories {
+		if slug, ok := globalCategorySlugs[slugify(category)]; ok {
+			add(slug)
+		}
+	}
+	if len(sections) > 0 {
+		return sections
+	}
+	text := strings.ToLower(strings.Join([]string{item.Title, item.Summary, plainText(item.HTML)}, " "))
+	for _, rule := range sectionRules {
+		for _, term := range rule.terms {
+			if containsTerm(text, term) {
+				add(rule.slug)
+				break
+			}
+		}
+	}
+	if len(sections) == 0 {
+		return nil
+	}
+	return sections
+}
+
+func containsTerm(text, term string) bool {
+	for start := 0; ; {
+		idx := strings.Index(text[start:], term)
+		if idx < 0 {
+			return false
+		}
+		idx += start
+		before := idx == 0 || !isWordRune(runeBefore(text, idx))
+		afterIdx := idx + len(term)
+		after := afterIdx == len(text) || !isWordRune(runeAfter(text, afterIdx))
+		if before && after {
+			return true
+		}
+		start = idx + len(term)
+		if start >= len(text) {
+			return false
+		}
+	}
+}
+
+func isWordRune(r rune) bool {
+	return unicode.IsLetter(r) || unicode.IsDigit(r)
+}
+
+func runeBefore(s string, idx int) rune {
+	var prev rune
+	for _, r := range s[:idx] {
+		prev = r
+	}
+	return prev
+}
+
+func runeAfter(s string, idx int) rune {
+	for _, r := range s[idx:] {
+		return r
+	}
+	return 0
+}
+
+type sectionRule struct {
+	slug  string
+	terms []string
+}
+
+var sectionRules = []sectionRule{
+	{"eleicoes", []string{"eleição", "eleições", "eleicoes", "eleitoral", "tse", "urna"}},
+	{"politica", []string{"política", "politica", "político", "politico", "congresso", "senado", "câmara", "stf", "planalto", "lula", "bolsonaro"}},
+	{"economia", []string{"economia", "mercado", "dólar", "bolsa", "inflação", "juros", "banco central", "ibovespa", "pib"}},
+	{"esportes", []string{"esporte", "esportes", "futebol", "brasileirão", "brasileirao", "libertadores", "olimpíada", "jogo", "time", "gol"}},
+	{"tecnologia", []string{"tecnologia", "inteligência artificial", "celular", "software", "aplicativo", "internet"}},
+	{"saude", []string{"saúde", "saude", "hospital", "médico", "vacina", "covid", "ans", "doença"}},
+	{"internacional", []string{"internacional", "eua", "estados unidos", "china", "rússia", "ucrânia", "israel", "gaza", "trump"}},
+	{"pop", []string{"pop", "celebridade", "filme", "série", "música", "show", "festival", "cantor", "atriz", "ator"}},
+	{"nacional", []string{"brasil", "brasileiro", "governo federal", "polícia federal", "rio de janeiro", "são paulo"}},
+}
+
+var globalCategorySlugs = map[string]string{
+	"politica":              "politica",
+	"poder":                 "politica",
+	"brasil":                "nacional",
+	"nacional":              "nacional",
+	"internacional":         "internacional",
+	"mundo":                 "internacional",
+	"economia":              "economia",
+	"mercado":               "economia",
+	"macroeconomia":         "economia",
+	"negocios":              "economia",
+	"investimentos":         "economia",
+	"esporte":               "esportes",
+	"esportes":              "esportes",
+	"futebol":               "esportes",
+	"futebol-brasileiro":    "esportes",
+	"futebol-internacional": "esportes",
+	"campeonato-brasileiro": "esportes",
+	"brasileirao":           "esportes",
+	"outros-esportes":       "esportes",
+	"volei":                 "esportes",
+	"automobilismo":         "esportes",
+	"pop":                   "pop",
+	"entretenimento":        "pop",
+	"cultura":               "pop",
+	"celebridades":          "pop",
+	"cnnpop":                "pop",
+	"cinema":                "pop",
+	"streaming":             "pop",
+	"tv":                    "pop",
+	"tecnologia":            "tecnologia",
+	"saude":                 "saude",
+	"eleicoes":              "eleicoes",
+	"eleicoes-2026":         "eleicoes",
+}
+
+func plainText(rawHTML string) string {
+	var b strings.Builder
+	inTag := false
+	for _, r := range rawHTML {
+		switch r {
+		case '<':
+			inTag = true
+			b.WriteRune(' ')
+		case '>':
+			inTag = false
+		default:
+			if !inTag {
+				b.WriteRune(r)
+			}
+		}
+	}
+	return b.String()
+}
+
 // Parse decodifica um feed RSS da CNN Brasil.
 func Parse(r io.Reader) ([]Item, error) {
 	return ParseSource(r, CNNBrasilSource)
@@ -257,7 +453,7 @@ func ParseSource(r io.Reader, source Source) ([]Item, error) {
 			continue
 		}
 		cats := cleanCategories(raw.Categories)
-		outItems = append(outItems, Item{
+		item := Item{
 			Source:     source.Name,
 			SourceID:   source.key(),
 			Title:      strings.TrimSpace(raw.Title),
@@ -269,7 +465,9 @@ func ParseSource(r io.Reader, source Source) ([]Item, error) {
 			Subsection: subsectionOf(link, cats),
 			Categories: cats,
 			HTML:       raw.Content,
-		})
+		}
+		item.Sections = Classify(item)
+		outItems = append(outItems, item)
 	}
 	return outItems, nil
 }

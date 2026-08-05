@@ -77,6 +77,45 @@ func TestParseSupportsExternalDateFormats(t *testing.T) {
 	}
 }
 
+func TestOfficialCategoriesMapForEverySource(t *testing.T) {
+	tests := []struct {
+		source Source
+		cats   []string
+		want   []string
+	}{
+		{CNNBrasilSource, []string{"Política", "Eleições 2026"}, []string{"politica", "eleicoes"}},
+		{G1Source, []string{"Tecnologia", "Saúde"}, []string{"tecnologia", "saude"}},
+		{UOLSource, []string{"Economia", "Internacional"}, []string{"economia", "internacional"}},
+		{FolhaSource, []string{"Poder", "Mercado"}, []string{"politica", "economia"}},
+		{EstadaoSource, []string{"Esportes", "Cultura"}, []string{"esportes", "pop"}},
+		{MetropolesSource, []string{"Brasil", "Celebridades"}, []string{"nacional", "pop"}},
+		{Poder360Source, []string{"Poder", "Eleições"}, []string{"politica", "eleicoes"}},
+	}
+
+	for _, tc := range tests {
+		t.Run(tc.source.ID, func(t *testing.T) {
+			var rss bytes.Buffer
+			rss.WriteString(`<rss><channel><item><title>Uma notícia</title><link>https://example.com/noticia</link><pubDate>Wed, 05 Aug 2026 12:00:00 -0300</pubDate>`)
+			for _, category := range tc.cats {
+				rss.WriteString(`<category>`)
+				rss.WriteString(category)
+				rss.WriteString(`</category>`)
+			}
+			rss.WriteString(`</item></channel></rss>`)
+
+			items, err := ParseSource(&rss, tc.source)
+			if err != nil {
+				t.Fatal(err)
+			}
+			for _, want := range tc.want {
+				if !hasSection(items[0].Sections, want) {
+					t.Fatalf("%s categorias %v deram seções %v, quero %q", tc.source.Name, tc.cats, items[0].Sections, want)
+				}
+			}
+		})
+	}
+}
+
 func TestHomeAggregatesAllValidatedExternalSources(t *testing.T) {
 	home := SourcesFor(Sections[0])
 	if len(home) != len(ExternalSources)+1 {
@@ -92,7 +131,12 @@ func TestHomeAggregatesAllValidatedExternalSources(t *testing.T) {
 	}
 
 	section := SourcesFor(Sections[1])
-	if len(section) != 1 || section[0] != CNNBrasilSource {
-		t.Errorf("seção não-Home = %#v, quero apenas CNN", section)
+	if len(section) != len(home) {
+		t.Fatalf("seção não-Home tem %d fontes, quero as %d da Home", len(section), len(home))
+	}
+	for i, source := range home {
+		if section[i] != source {
+			t.Errorf("fonte da seção %d = %#v, quero %#v", i, section[i], source)
+		}
 	}
 }
