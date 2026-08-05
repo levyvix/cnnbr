@@ -124,19 +124,24 @@ func TestJustifyToggleIsTheOnlyPrefChosen(t *testing.T) {
 
 func TestHomeIdentifiesItemsBySource(t *testing.T) {
 	m := newTestModel(t)
-	m.tabs[0].items = []feed.Item{{
-		Source:   feed.SourceG1,
-		SourceID: feed.SourceG1ID,
-		Title:    "Uma matéria do G1",
-		Link:     "https://g1.globo.com/politica/noticia/uma-materia.ghtml",
-	}}
+	m.tabs[0].items = make([]feed.Item, len(feed.ExternalSources))
+	for i, source := range feed.ExternalSources {
+		m.tabs[0].items[i] = feed.Item{
+			Source:   source.Name,
+			SourceID: source.ID,
+			Title:    "Uma matéria de " + source.Name,
+			Link:     "https://example.com/" + source.ID + "/uma-materia",
+		}
+	}
 	m.tabs[0].loaded = true
 	m.rebuildView(0)
 
 	next, _ := m.Update(tea.WindowSizeMsg{Width: 100, Height: 24})
 	view := next.(Model).View()
-	if !strings.Contains(view, "G1") {
-		t.Errorf("a Home não identificou a fonte na lista:\n%s", view)
+	for _, source := range feed.ExternalSources {
+		if !strings.Contains(view, source.Name) {
+			t.Errorf("a Home não identificou %q na lista:\n%s", source.Name, view)
+		}
 	}
 }
 

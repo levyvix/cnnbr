@@ -93,6 +93,8 @@ var Poder360Source = Source{ID: SourcePoder360ID, Name: SourcePoder360, FeedURL:
 // ExternalSources são as fontes com RSS oficial validado que entram na Home.
 // As demais seções continuam sendo recortes do feed da CNN Brasil até que a
 // classificação global de fontes seja implementada.
+// Na validação de 2026-08-05, o RSS oficial de O Globo estava vazio e o R7 não
+// expunha um RSS; ambos ficam fora até que um feed oficial seja validado.
 var ExternalSources = []Source{
 	G1Source,
 	UOLSource,

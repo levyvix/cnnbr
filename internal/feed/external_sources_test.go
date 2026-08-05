@@ -1,6 +1,7 @@
 package feed
 
 import (
+	"bytes"
 	"os"
 	"path/filepath"
 	"testing"
@@ -32,6 +33,17 @@ func TestExternalSourcesHaveFixturesAndParse(t *testing.T) {
 				}
 			}
 		})
+	}
+}
+
+func TestParseSupportsLatin1RSS(t *testing.T) {
+	data := []byte(`<?xml version="1.0" encoding="ISO-8859-1"?><rss><channel><item><title>Caf` + "\xe9" + `</title><link>https://example.com/cafe</link><pubDate>Wed, 05 Aug 2026 12:00:00 -0300</pubDate></item></channel></rss>`)
+	items, err := ParseSource(bytes.NewReader(data), UOLSource)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got := items[0].Title; got != "Café" {
+		t.Errorf("título Latin-1 = %q, quero %q", got, "Café")
 	}
 }
 
