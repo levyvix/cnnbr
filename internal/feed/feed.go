@@ -20,10 +20,14 @@ import (
 // FeedURL é o host que responde de fato ao /feed/ (www redireciona para cá).
 const FeedURL = "https://admin.cnnbrasil.com.br/feed/"
 
+// SourceCNNBrasil é a fonte dos feeds que o leitor consome hoje.
+const SourceCNNBrasil = "CNN Brasil"
+
 const userAgent = "Mozilla/5.0 (X11; Linux x86_64) cnnbr/0.1"
 
 // Item é uma matéria do feed.
 type Item struct {
+	Source     string
 	Title      string
 	Link       string
 	Author     string
@@ -36,9 +40,15 @@ type Item struct {
 }
 
 // ID identifica a matéria de forma estável entre execuções. O <guid> do feed da
-// CNN não é confiável (vários itens compartilham o mesmo valor), então usamos o
-// link.
-func (i Item) ID() string { return i.Link }
+// CNN não é confiável (vários itens compartilham o mesmo valor), então usamos a
+// fonte e o link.
+func (i Item) ID() string {
+	source := i.Source
+	if source == "" {
+		source = SourceCNNBrasil
+	}
+	return source + "\x00" + i.Link
+}
 
 type rss struct {
 	Items []struct {
@@ -135,6 +145,7 @@ func Parse(r io.Reader) ([]Item, error) {
 		}
 		cats := cleanCategories(raw.Categories)
 		outItems = append(outItems, Item{
+			Source:     SourceCNNBrasil,
 			Title:      strings.TrimSpace(raw.Title),
 			Link:       link,
 			Author:     strings.TrimSpace(raw.Creator),

@@ -201,3 +201,37 @@ func TestDedupeAndOrder(t *testing.T) {
 		seen[it.ID()] = true
 	}
 }
+
+func TestParseAssignsSource(t *testing.T) {
+	items, err := Parse(strings.NewReader(`<rss><channel><item>
+		<title>Uma notícia</title>
+		<link>https://www.cnnbrasil.com.br/politica/uma-noticia/</link>
+		<pubDate>Mon, 03 Aug 2026 12:00:00 -0300</pubDate>
+		<description>Um resumo.</description>
+		<category>Política</category>
+		<encoded><![CDATA[<p>O corpo.</p>]]></encoded>
+	</item></channel></rss>`))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(items) != 1 {
+		t.Fatalf("Parse devolveu %d itens, quero 1", len(items))
+	}
+	if got := items[0].Source; got != SourceCNNBrasil {
+		t.Errorf("Source = %q, quero %q", got, SourceCNNBrasil)
+	}
+}
+
+func TestItemIDIncludesSource(t *testing.T) {
+	const link = "https://example.com/noticia"
+
+	cnn := Item{Source: SourceCNNBrasil, Link: link}
+	other := Item{Source: "Outra fonte", Link: link}
+
+	if cnn.ID() == other.ID() {
+		t.Fatalf("fontes diferentes colidiram no ID: %q", cnn.ID())
+	}
+	if cnn.ID() != (Item{Source: SourceCNNBrasil, Link: link}).ID() {
+		t.Error("o mesmo par fonte + URL não produziu ID estável")
+	}
+}
