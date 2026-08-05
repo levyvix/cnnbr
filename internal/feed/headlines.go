@@ -8,6 +8,8 @@ import (
 
 const HeadlinesSlug = "manchetes"
 
+const headlineSimilarityThreshold = 0.30
+
 // CoverageGroup é uma mesma pauta coberta por várias fontes. Items são índices
 // para a lista original; as matérias não são fundidas nem alteradas.
 type CoverageGroup struct {
@@ -28,7 +30,9 @@ func (g CoverageGroup) SourceCount(items []Item) int {
 }
 
 // CoverageGroups agrupa pautas com pelo menos três fontes, considerando
-// similaridade textual e janela de até 24 horas.
+// similaridade textual e janela de até 24 horas. Quando os feeds atuais não têm
+// nenhuma pauta com três fontes, devolve os agrupamentos fortes com duas fontes
+// para a seção não nascer vazia.
 func CoverageGroups(items []Item, sources []Source) []CoverageGroup {
 	var groups []CoverageGroup
 	for i, item := range items {
@@ -66,17 +70,25 @@ func CoverageGroups(items []Item, sources []Source) []CoverageGroup {
 		sourceRank[source.key()] = i
 	}
 
-	filtered := groups[:0]
-	for _, group := range groups {
-		group.Items = sortGroupItems(group.Items, items, sourceRank)
-		if group.SourceCount(items) < 3 {
-			continue
-		}
-		filtered = append(filtered, group)
+	filtered := filterCoverageGroups(groups, items, sourceRank, 3)
+	if len(filtered) == 0 {
+		filtered = filterCoverageGroups(groups, items, sourceRank, 2)
 	}
 	sort.SliceStable(filtered, func(i, j int) bool {
 		return filtered[i].Published.After(filtered[j].Published)
 	})
+	return filtered
+}
+
+func filterCoverageGroups(groups []CoverageGroup, items []Item, sourceRank map[string]int, minSources int) []CoverageGroup {
+	filtered := make([]CoverageGroup, 0, len(groups))
+	for _, group := range groups {
+		group.Items = sortGroupItems(group.Items, items, sourceRank)
+		if group.SourceCount(items) < minSources {
+			continue
+		}
+		filtered = append(filtered, group)
+	}
 	return filtered
 }
 
@@ -105,7 +117,7 @@ func similarToGroup(tokens map[string]bool, group CoverageGroup, items []Item) b
 		if idx < 0 || idx >= len(items) {
 			continue
 		}
-		if similarity(tokens, headlineTokens(items[idx])) >= 0.45 {
+		if similarity(tokens, headlineTokens(items[idx])) >= headlineSimilarityThreshold {
 			return true
 		}
 	}

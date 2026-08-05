@@ -55,3 +55,20 @@ func TestCoverageGroupsDoesNotAlterOriginalItems(t *testing.T) {
 		}
 	}
 }
+
+func TestCoverageGroupsFallsBackToTwoSourcesWhenNoThreeSourceGroupExists(t *testing.T) {
+	now := time.Date(2026, time.August, 5, 12, 0, 0, 0, time.UTC)
+	items := []Item{
+		{SourceID: SourceG1ID, Source: SourceG1, Title: "Antonio Banderas fala sobre infarto", Published: now},
+		{SourceID: SourceCNNBrasilID, Source: SourceCNNBrasil, Title: "Antonio Banderas diz que mudou após infarto", Published: now.Add(-time.Hour)},
+		{SourceID: SourceUOLID, Source: SourceUOL, Title: "Dólar fecha em queda nesta terça", Published: now},
+	}
+
+	groups := CoverageGroups(items, AllSources())
+	if len(groups) != 1 {
+		t.Fatalf("CoverageGroups devolveu %d grupos, quero fallback com 1 grupo de duas fontes", len(groups))
+	}
+	if got := groups[0].SourceCount(items); got != 2 {
+		t.Fatalf("fontes do fallback = %d, quero 2", got)
+	}
+}
