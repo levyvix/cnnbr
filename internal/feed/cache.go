@@ -56,7 +56,7 @@ func (c Cache) Load(source, slug string) ([]Item, time.Time, error) {
 	if cf.Version != cacheVersion {
 		return nil, time.Time{}, errStaleCache
 	}
-	return retain(cf.Items, nowFn()), cf.FetchedAt, nil
+	return retainRecentItems(cf.Items, cf.FetchedAt, nowFn()), cf.FetchedAt, nil
 }
 
 // Save grava os itens de uma fonte e seção no cache, retendo no máximo sete
@@ -65,7 +65,7 @@ func (c Cache) Save(source, slug string, items []Item, at time.Time) error {
 	if err := os.MkdirAll(c.Dir, 0o755); err != nil {
 		return err
 	}
-	data, err := json.Marshal(cacheFile{Version: cacheVersion, FetchedAt: at, Items: retain(items, at)})
+	data, err := json.Marshal(cacheFile{Version: cacheVersion, FetchedAt: at, Items: retainRecentItems(items, at, at)})
 	if err != nil {
 		return err
 	}
@@ -83,11 +83,15 @@ func cacheKey(value string) string {
 	return hex.EncodeToString([]byte(value))
 }
 
-func retain(items []Item, at time.Time) []Item {
-	cutoff := at.Add(-cacheRetention)
+func retainRecentItems(items []Item, fetchedAt, now time.Time) []Item {
+	cutoff := now.Add(-cacheRetention)
 	kept := make([]Item, 0, len(items))
 	for _, item := range items {
-		if !item.Published.IsZero() && !item.Published.Before(cutoff) {
+		published := item.Published
+		if published.IsZero() {
+			published = fetchedAt
+		}
+		if !published.IsZero() && !published.Before(cutoff) {
 			kept = append(kept, item)
 		}
 	}

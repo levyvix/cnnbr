@@ -2,6 +2,7 @@ package feed
 
 import (
 	"path/filepath"
+	"reflect"
 	"testing"
 	"time"
 )
@@ -13,8 +14,20 @@ func TestCacheSeparatesSourcesAndRetainsSevenDays(t *testing.T) {
 	t.Cleanup(func() { nowFn = previousNow })
 
 	c := Cache{Dir: filepath.Join(t.TempDir(), "cache"), TTL: time.Hour}
+	wantCNN := Item{
+		Source:     SourceCNNBrasil,
+		Title:      "Uma notícia",
+		Link:       "https://cnn.example/recente",
+		Author:     "Repórter",
+		Published:  now.Add(-time.Hour),
+		Summary:    "Um resumo.",
+		Section:    "Política",
+		Subsection: "Congresso",
+		Categories: []string{"Política", "Congresso"},
+		HTML:       "<p>O corpo.</p>",
+	}
 	cnnItems := []Item{
-		{Source: SourceCNNBrasil, Link: "https://cnn.example/recente", Published: now.Add(-time.Hour)},
+		wantCNN,
 		{Source: SourceCNNBrasil, Link: "https://cnn.example/antiga", Published: now.Add(-8 * 24 * time.Hour)},
 		{Source: SourceCNNBrasil, Link: "https://cnn.example/sem-data"},
 	}
@@ -31,7 +44,7 @@ func TestCacheSeparatesSourcesAndRetainsSevenDays(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if len(gotCNN) != 1 || gotCNN[0].Link != "https://cnn.example/recente" {
+	if len(gotCNN) != 2 || !reflect.DeepEqual(gotCNN[0], wantCNN) || gotCNN[1].Link != "https://cnn.example/sem-data" {
 		t.Errorf("cache da CNN = %#v, quero só a notícia recente da CNN", gotCNN)
 	}
 
