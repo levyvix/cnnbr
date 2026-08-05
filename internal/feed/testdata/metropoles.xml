@@ -1,0 +1,13 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<rss version="2.0" xmlns:content="http://purl.org/rss/1.0/modules/content/">
+  <channel>
+    <title>Metrópoles</title>
+    <item>
+      <title>Metrópoles: notícia de teste</title>
+      <link>https://www.metropoles.com/brasil/2026/08/05/noticia-de-teste</link>
+      <description><![CDATA[Resumo do Metrópoles.]]></description>
+      <pubDate>Wed, 05 Aug 2026 09:00:00 -0300</pubDate>
+      <content:encoded><![CDATA[<p>Corpo do Metrópoles.</p>]]></content:encoded>
+    </item>
+  </channel>
+</rss>

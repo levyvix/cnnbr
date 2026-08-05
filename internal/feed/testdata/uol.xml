@@ -1,0 +1,12 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<rss version="2.0">
+  <channel>
+    <title>UOL Noticias</title>
+    <item>
+      <title>UOL: notícia de teste</title>
+      <link>https://noticias.uol.com.br/politica/2026/08/05/noticia-de-teste.htm</link>
+      <description><![CDATA[Resumo da UOL.]]></description>
+      <pubDate>Wed, 05 Aug 2026 12:00:00 -0300</pubDate>
+    </item>
+  </channel>
+</rss>

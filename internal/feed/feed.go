@@ -15,6 +15,8 @@ import (
 	"strconv"
 	"strings"
 	"time"
+
+	"golang.org/x/net/html/charset"
 )
 
 // FeedURL é o host que responde de fato ao /feed/ (www redireciona para cá).
@@ -48,6 +50,60 @@ const SourceG1ID = "g1"
 // G1Source é a fonte externa que aparece na Home.
 var G1Source = Source{ID: SourceG1ID, Name: SourceG1, FeedURL: G1FeedURL}
 
+const UOLFeedURL = "https://rss.uol.com.br/feed/noticias.xml"
+
+const SourceUOL = "UOL Notícias"
+
+const SourceUOLID = "uol"
+
+var UOLSource = Source{ID: SourceUOLID, Name: SourceUOL, FeedURL: UOLFeedURL}
+
+const FolhaFeedURL = "https://feeds.folha.uol.com.br/emcimadahora/rss091.xml"
+
+const SourceFolha = "Folha de S.Paulo"
+
+const SourceFolhaID = "folha"
+
+var FolhaSource = Source{ID: SourceFolhaID, Name: SourceFolha, FeedURL: FolhaFeedURL}
+
+const EstadaoFeedURL = "https://www.estadao.com.br/arc/outboundfeeds/feeds/rss/sections/geral/"
+
+const SourceEstadao = "Estadão"
+
+const SourceEstadaoID = "estadao"
+
+var EstadaoSource = Source{ID: SourceEstadaoID, Name: SourceEstadao, FeedURL: EstadaoFeedURL}
+
+const MetropolesFeedURL = "https://www.metropoles.com/feed"
+
+const SourceMetropoles = "Metrópoles"
+
+const SourceMetropolesID = "metropoles"
+
+var MetropolesSource = Source{ID: SourceMetropolesID, Name: SourceMetropoles, FeedURL: MetropolesFeedURL}
+
+const Poder360FeedURL = "https://www.poder360.com.br/feed/"
+
+const SourcePoder360 = "Poder360"
+
+const SourcePoder360ID = "poder360"
+
+var Poder360Source = Source{ID: SourcePoder360ID, Name: SourcePoder360, FeedURL: Poder360FeedURL}
+
+// ExternalSources são as fontes com RSS oficial validado que entram na Home.
+// As demais seções continuam sendo recortes do feed da CNN Brasil até que a
+// classificação global de fontes seja implementada.
+// Na validação de 2026-08-05, o RSS oficial de O Globo estava vazio e o R7 não
+// expunha um RSS; ambos ficam fora até que um feed oficial seja validado.
+var ExternalSources = []Source{
+	G1Source,
+	UOLSource,
+	FolhaSource,
+	EstadaoSource,
+	MetropolesSource,
+	Poder360Source,
+}
+
 func (s Source) key() string {
 	if s.ID != "" {
 		return s.ID
@@ -55,11 +111,11 @@ func (s Source) key() string {
 	return s.Name
 }
 
-// SourcesFor devolve as fontes que alimentam uma seção. Só a Home agrega o
-// G1; as demais continuam sendo recortes do feed da CNN Brasil.
+// SourcesFor devolve as fontes que alimentam uma seção. Só a Home agrega as
+// fontes externas; as demais continuam sendo recortes do feed da CNN Brasil.
 func SourcesFor(s Section) []Source {
 	if s.Cat == 0 {
-		return []Source{CNNBrasilSource, G1Source}
+		return append([]Source{CNNBrasilSource}, ExternalSources...)
 	}
 	return []Source{CNNBrasilSource}
 }
@@ -188,7 +244,9 @@ func Parse(r io.Reader) ([]Item, error) {
 // ParseSource decodifica um feed RSS e associa a fonte a cada item.
 func ParseSource(r io.Reader, source Source) ([]Item, error) {
 	var doc rss
-	if err := xml.NewDecoder(r).Decode(&doc); err != nil {
+	decoder := xml.NewDecoder(r)
+	decoder.CharsetReader = charset.NewReaderLabel
+	if err := decoder.Decode(&doc); err != nil {
 		return nil, fmt.Errorf("decodificando RSS: %w", err)
 	}
 
@@ -217,13 +275,48 @@ func ParseSource(r io.Reader, source Source) ([]Item, error) {
 }
 
 func parseDate(s string) time.Time {
-	s = strings.TrimSpace(s)
-	for _, layout := range []string{time.RFC1123Z, time.RFC1123, time.RFC822Z, time.RFC822} {
+	s = normalizeDate(strings.TrimSpace(s))
+	for _, layout := range []string{
+		time.RFC1123Z,
+		time.RFC1123,
+		time.RFC822Z,
+		time.RFC822,
+		"02 Jan 2006 15:04:05 -0700",
+		"02 Jan 2006 15:04:05 MST",
+		"02 Jan 06 15:04 -0700",
+	} {
 		if t, err := time.Parse(layout, s); nil == err {
 			return t.Local()
 		}
 	}
 	return time.Time{}
+}
+
+func normalizeDate(s string) string {
+	for portuguese, english := range map[string]string{
+		"Dom": "Sun",
+		"Seg": "Mon",
+		"Ter": "Tue",
+		"Qua": "Wed",
+		"Qui": "Thu",
+		"Sex": "Fri",
+		"Sáb": "Sat",
+		"Jan": "Jan",
+		"Fev": "Feb",
+		"Mar": "Mar",
+		"Abr": "Apr",
+		"Mai": "May",
+		"Jun": "Jun",
+		"Jul": "Jul",
+		"Ago": "Aug",
+		"Set": "Sep",
+		"Out": "Oct",
+		"Nov": "Nov",
+		"Dez": "Dec",
+	} {
+		s = strings.Replace(s, portuguese, english, 1)
+	}
+	return s
 }
 
 func cleanCategories(in []string) []string {
