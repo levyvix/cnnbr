@@ -16,6 +16,7 @@ func TestCacheSeparatesSourcesAndRetainsSevenDays(t *testing.T) {
 	cnnItems := []Item{
 		{Source: SourceCNNBrasil, Link: "https://cnn.example/recente", Published: now.Add(-time.Hour)},
 		{Source: SourceCNNBrasil, Link: "https://cnn.example/antiga", Published: now.Add(-8 * 24 * time.Hour)},
+		{Source: SourceCNNBrasil, Link: "https://cnn.example/sem-data"},
 	}
 	g1Items := []Item{{Source: "G1", Link: "https://g1.example/recente", Published: now.Add(-time.Hour)}}
 
@@ -47,5 +48,8 @@ func TestCacheSeparatesSourcesAndRetainsSevenDays(t *testing.T) {
 	}
 	if _, _, err := c.Load("Outra CNN", "home"); err == nil {
 		t.Error("fontes com chaves diferentes não deveriam compartilhar o cache")
+	}
+	if c.path("CNN Brasil", "home") == c.path("CNN-Brasil", "home") {
+		t.Error("fontes parecidas não deveriam compartilhar o caminho do cache")
 	}
 }

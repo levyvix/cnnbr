@@ -2,6 +2,7 @@ package feed
 
 import (
 	"context"
+	"encoding/hex"
 	"encoding/json"
 	"errors"
 	"net/http"
@@ -76,18 +77,17 @@ func (c Cache) Save(source, slug string, items []Item, at time.Time) error {
 }
 
 func cacheKey(value string) string {
-	key := slugify(value)
-	if key == "" {
+	if value == "" {
 		return "unknown"
 	}
-	return key
+	return hex.EncodeToString([]byte(value))
 }
 
 func retain(items []Item, at time.Time) []Item {
 	cutoff := at.Add(-cacheRetention)
 	kept := make([]Item, 0, len(items))
 	for _, item := range items {
-		if item.Published.IsZero() || !item.Published.Before(cutoff) {
+		if !item.Published.IsZero() && !item.Published.Before(cutoff) {
 			kept = append(kept, item)
 		}
 	}
