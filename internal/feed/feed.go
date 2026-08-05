@@ -23,20 +23,32 @@ const FeedURL = "https://admin.cnnbrasil.com.br/feed/"
 // SourceCNNBrasil é a fonte dos feeds que o leitor consome hoje.
 const SourceCNNBrasil = "CNN Brasil"
 
+// SourceCNNBrasilID é a identidade estável da fonte da CNN.
+const SourceCNNBrasilID = "cnnbrasil"
+
 // Source descreve uma fonte RSS que o leitor pode consumir.
 type Source struct {
+	ID      string
 	Name    string
 	FeedURL string
 }
 
 // CNNBrasilSource é a fonte configurada atualmente.
-var CNNBrasilSource = Source{Name: SourceCNNBrasil, FeedURL: FeedURL}
+var CNNBrasilSource = Source{ID: SourceCNNBrasilID, Name: SourceCNNBrasil, FeedURL: FeedURL}
+
+func (s Source) key() string {
+	if s.ID != "" {
+		return s.ID
+	}
+	return s.Name
+}
 
 const userAgent = "Mozilla/5.0 (X11; Linux x86_64) cnnbr/0.1"
 
 // Item é uma matéria do feed.
 type Item struct {
 	Source     string
+	SourceID   string
 	Title      string
 	Link       string
 	Author     string
@@ -52,9 +64,12 @@ type Item struct {
 // CNN não é confiável (vários itens compartilham o mesmo valor), então usamos a
 // fonte e o link.
 func (i Item) ID() string {
-	source := i.Source
+	source := i.SourceID
 	if source == "" {
-		source = SourceCNNBrasil
+		source = i.Source
+	}
+	if source == "" {
+		source = SourceCNNBrasilID
 	}
 	return source + "\x00" + i.Link
 }
@@ -165,6 +180,7 @@ func ParseSource(r io.Reader, source Source) ([]Item, error) {
 		cats := cleanCategories(raw.Categories)
 		outItems = append(outItems, Item{
 			Source:     source.Name,
+			SourceID:   source.key(),
 			Title:      strings.TrimSpace(raw.Title),
 			Link:       link,
 			Author:     strings.TrimSpace(raw.Creator),

@@ -44,7 +44,7 @@ func TestToggles(t *testing.T) {
 func TestSourceAwareIDsKeepLegacyState(t *testing.T) {
 	const (
 		legacyID  = "https://cnn.example/noticia"
-		currentID = "CNN Brasil\x00" + legacyID
+		currentID = "cnnbrasil\x00" + legacyID
 	)
 
 	s := New(filepath.Join(t.TempDir(), "state.json"))

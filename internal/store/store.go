@@ -160,6 +160,9 @@ func resolvedID(entries map[string]time.Time, id string) string {
 	if _, ok := entries[id]; ok {
 		return id
 	}
+	if !strings.HasPrefix(id, "cnnbrasil\x00") {
+		return id
+	}
 	return legacyID(id)
 }
 

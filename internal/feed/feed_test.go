@@ -223,6 +223,9 @@ func TestParseAssignsSource(t *testing.T) {
 	if got := items[0].Source; got != "Outra fonte" {
 		t.Errorf("Source = %q, quero %q", got, "Outra fonte")
 	}
+	if got := items[0].SourceID; got != "Outra fonte" {
+		t.Errorf("SourceID = %q, quero %q", got, "Outra fonte")
+	}
 }
 
 func TestFetchSourceUsesSourceFeed(t *testing.T) {
@@ -255,13 +258,13 @@ func httpHandler(body string) http.Handler {
 func TestItemIDIncludesSource(t *testing.T) {
 	const link = "https://example.com/noticia"
 
-	cnn := Item{Source: SourceCNNBrasil, Link: link}
-	other := Item{Source: "Outra fonte", Link: link}
+	cnn := Item{Source: SourceCNNBrasil, SourceID: SourceCNNBrasilID, Link: link}
+	other := Item{Source: "Outra fonte", SourceID: "outra-fonte", Link: link}
 
 	if cnn.ID() == other.ID() {
 		t.Fatalf("fontes diferentes colidiram no ID: %q", cnn.ID())
 	}
-	if cnn.ID() != (Item{Source: SourceCNNBrasil, Link: link}).ID() {
+	if cnn.ID() != (Item{Source: SourceCNNBrasil, SourceID: SourceCNNBrasilID, Link: link}).ID() {
 		t.Error("o mesmo par fonte + URL não produziu ID estável")
 	}
 }

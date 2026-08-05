@@ -118,7 +118,7 @@ func Get(ctx context.Context, client *http.Client, c Cache, s Section, pages int
 // GetSource devolve o feed de uma fonte e seção, preferindo o cache enquanto
 // ele estiver dentro do TTL.
 func GetSource(ctx context.Context, client *http.Client, c Cache, source Source, s Section, pages int, force bool) Result {
-	cached, fetchedAt, cacheErr := c.Load(source.Name, s.Slug)
+	cached, fetchedAt, cacheErr := c.Load(source.key(), s.Slug)
 	fresh := cacheErr == nil && len(cached) > 0 && time.Since(fetchedAt) < c.TTL
 
 	if !force && fresh {
@@ -135,7 +135,7 @@ func GetSource(ctx context.Context, client *http.Client, c Cache, source Source,
 
 	now := nowFn()
 	// Falha ao gravar o cache não impede a leitura.
-	_ = c.Save(source.Name, s.Slug, items, now)
+	_ = c.Save(source.key(), s.Slug, items, now)
 	return Result{Section: s, Items: items, FetchedAt: now}
 }
 
