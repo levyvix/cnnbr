@@ -16,6 +16,7 @@ func TestCacheSeparatesSourcesAndRetainsSevenDays(t *testing.T) {
 	c := Cache{Dir: filepath.Join(t.TempDir(), "cache"), TTL: time.Hour}
 	wantCNN := Item{
 		Source:     SourceCNNBrasil,
+		SourceID:   SourceCNNBrasilID,
 		Title:      "Uma notícia",
 		Link:       "https://cnn.example/recente",
 		Author:     "Repórter",
