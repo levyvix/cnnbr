@@ -4,6 +4,7 @@ import (
 	"path/filepath"
 	"strings"
 	"testing"
+	"time"
 
 	tea "github.com/charmbracelet/bubbletea"
 
@@ -162,6 +163,76 @@ func TestSectionHeadlinesShowSource(t *testing.T) {
 	if !strings.Contains(view, feed.SourceG1) {
 		t.Fatalf("seção não identificou a fonte %q:\n%s", feed.SourceG1, view)
 	}
+}
+
+func TestHeadlinesTabShowsCoverageGroups(t *testing.T) {
+	m := headlinesModel(t)
+	next, _ := m.Update(tea.WindowSizeMsg{Width: 120, Height: 24})
+	view := next.(Model).View()
+	if !strings.Contains(view, "Manchetes") || !strings.Contains(view, "Banco Central mantém juros em 15% (3 fontes)") {
+		t.Fatalf("Manchetes não mostrou grupo com contagem de fontes:\n%s", view)
+	}
+	if !strings.Contains(view, "Banco Central mantém juros") {
+		t.Fatalf("Manchetes não mostrou título da pauta:\n%s", view)
+	}
+}
+
+func TestHeadlinesReaderSeparatesSourcesAndSharesReadState(t *testing.T) {
+	m := headlinesModel(t)
+	next, _ := m.Update(tea.WindowSizeMsg{Width: 120, Height: 24})
+	m = next.(Model)
+	m = press(t, m, "enter")
+	if m.mode != modeReader {
+		t.Fatalf("enter abriu modo %v, quero leitor", m.mode)
+	}
+	view := m.renderArticle()
+	for _, want := range []string{feed.SourceCNNBrasil, feed.SourceG1, feed.SourceUOL, "Corpo CNN", "Corpo G1", "Corpo UOL"} {
+		if !strings.Contains(view, want) {
+			t.Fatalf("leitor de Manchetes não mostrou %q:\n%s", want, view)
+		}
+	}
+	for _, item := range m.tabs[m.active].items {
+		if !m.cfg.Store.IsRead(item.ID()) {
+			t.Fatalf("matéria %s não compartilhou estado lido", item.ID())
+		}
+	}
+}
+
+func TestHeadlinesFavoriteTogglesEveryGroupedItem(t *testing.T) {
+	m := headlinesModel(t)
+	m = press(t, m, "f")
+	for _, item := range m.tabs[m.active].items {
+		if !m.cfg.Store.IsSaved(item.ID()) {
+			t.Fatalf("matéria %s não foi salva pelo grupo", item.ID())
+		}
+	}
+
+	m = press(t, m, "enter", "f")
+	for _, item := range m.tabs[m.active].items {
+		if m.cfg.Store.IsSaved(item.ID()) {
+			t.Fatalf("matéria %s não foi removida pelo leitor do grupo", item.ID())
+		}
+	}
+}
+
+func headlinesModel(t *testing.T) Model {
+	t.Helper()
+	now := time.Date(2026, time.August, 5, 12, 0, 0, 0, time.UTC)
+	m := newTestModel(t)
+	for i := range m.tabs {
+		if m.tabs[i].section.Slug == feed.HeadlinesSlug {
+			m.active = i
+			break
+		}
+	}
+	m.tabs[m.active].items = []feed.Item{
+		{Source: feed.SourceCNNBrasil, SourceID: feed.SourceCNNBrasilID, Title: "Banco Central mantém juros em 15%", Link: "https://cnn.example/juros", Published: now, HTML: "<p>Corpo CNN.</p>"},
+		{Source: feed.SourceG1, SourceID: feed.SourceG1ID, Title: "Banco Central mantém taxa de juros em 15%", Link: "https://g1.example/juros", Published: now.Add(-time.Hour), HTML: "<p>Corpo G1.</p>"},
+		{Source: feed.SourceUOL, SourceID: feed.SourceUOLID, Title: "Banco Central mantém juros em 15 por cento", Link: "https://uol.example/juros", Published: now.Add(-2 * time.Hour), HTML: "<p>Corpo UOL.</p>"},
+	}
+	m.tabs[m.active].loaded = true
+	m.rebuildView(m.active)
+	return m
 }
 
 func repeat(key string, n int) []string {

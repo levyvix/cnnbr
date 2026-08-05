@@ -197,6 +197,9 @@ func (m Model) viewList() string {
 
 func (m Model) viewItem(i int) []string {
 	t := m.tabs[m.active]
+	if t.section.Slug == feed.HeadlinesSlug {
+		return m.viewCoverageGroup(i)
+	}
 	it := t.items[t.view[i]]
 	isRead := m.cfg.Store.IsRead(it.ID())
 	isSaved := m.cfg.Store.IsSaved(it.ID())
@@ -252,18 +255,69 @@ func (m Model) viewItem(i int) []string {
 	}
 }
 
+func (m Model) viewCoverageGroup(i int) []string {
+	t := m.tabs[m.active]
+	group := t.groups[t.view[i]]
+	isRead := true
+	isSaved := false
+	for _, idx := range group.Items {
+		item := t.items[idx]
+		if !m.cfg.Store.IsRead(item.ID()) {
+			isRead = false
+		}
+		if m.cfg.Store.IsSaved(item.ID()) {
+			isSaved = true
+		}
+	}
+
+	prefix, indent := "  ", "  "
+	if i == t.cursor {
+		prefix = cursorStyle.Render("█ ")
+		indent = prefix
+	}
+
+	titleWidth := m.width - 2 - 2
+	if titleWidth < 10 {
+		titleWidth = 10
+	}
+	style := titleStyle
+	if isRead {
+		style = readStyle
+	}
+	count := group.SourceCount(t.items)
+	titleText := fmt.Sprintf("%s (%d fontes)", group.Title, count)
+	title := style.Render(truncate.StringWithTail(titleText, uint(titleWidth), "…"))
+	meta := []string{fmt.Sprintf("%d fontes", count)}
+	if rel := relativeTime(group.Published); rel != "" {
+		meta = append(meta, rel)
+	}
+	metaLine := sectionStyle.Render(meta[0]) + itemMetaStyle.Render(" · "+strings.Join(meta[1:], " · "))
+	if isSaved {
+		metaLine += savedStyle.Render("  ★")
+	}
+	return []string{prefix + title, indent + metaLine, ""}
+}
+
 // renderArticle monta o conteúdo do leitor para a matéria aberta.
 func (m Model) renderArticle() string {
 	it := m.reading()
 	l := render.FitLayout(m.width, m.prefs.Justify)
+	title := it.Title
+	section := it.Section
+	saved := m.cfg.Store.IsSaved(it.ID())
+	if group, ok := m.activeCoverageGroup(); ok {
+		title = fmt.Sprintf("%s (%d fontes)", group.Title, group.SourceCount(m.tabs[m.active].items))
+		section = m.tabs[m.active].section.Name
+		saved = m.groupAnySaved(group)
+	}
 
 	head := render.RenderHeader(render.Header{
-		Section:     it.Section,
-		Title:       it.Title,
+		Section:     section,
+		Title:       title,
 		Author:      it.Author,
 		Published:   relativeTime(it.Published),
 		ReadingTime: article.ReadingTime(m.blocks),
-		Saved:       m.cfg.Store.IsSaved(it.ID()),
+		Saved:       saved,
 	}, l)
 
 	return head + "\n" + render.RenderBody(m.blocks, l) + render.RenderLinks(m.blocks, l) + "\n"
