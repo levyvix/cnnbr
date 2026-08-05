@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"os"
 	"path/filepath"
+	"strings"
 	"sync"
 	"time"
 )
@@ -90,6 +91,9 @@ func (s *Store) IsRead(id string) bool {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	_, ok := s.state.Read[id]
+	if !ok {
+		_, ok = s.state.Read[legacyID(id)]
+	}
 	return ok
 }
 
@@ -99,6 +103,14 @@ func (s *Store) MarkRead(id string) {
 	defer s.mu.Unlock()
 	if _, ok := s.state.Read[id]; ok {
 		return
+	}
+	if legacy := legacyID(id); legacy != id {
+		if at, ok := s.state.Read[legacy]; ok {
+			delete(s.state.Read, legacy)
+			s.state.Read[id] = at
+			s.dirty = true
+			return
+		}
 	}
 	s.state.Read[id] = time.Now()
 	s.dirty = true
@@ -113,6 +125,13 @@ func (s *Store) ToggleRead(id string) bool {
 		s.dirty = true
 		return false
 	}
+	if legacy := legacyID(id); legacy != id {
+		if _, ok := s.state.Read[legacy]; ok {
+			delete(s.state.Read, legacy)
+			s.dirty = true
+			return false
+		}
+	}
 	s.state.Read[id] = time.Now()
 	s.dirty = true
 	return true
@@ -123,6 +142,9 @@ func (s *Store) IsSaved(id string) bool {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	_, ok := s.state.Saved[id]
+	if !ok {
+		_, ok = s.state.Saved[legacyID(id)]
+	}
 	return ok
 }
 
@@ -135,9 +157,23 @@ func (s *Store) ToggleSaved(id string) bool {
 		s.dirty = true
 		return false
 	}
+	if legacy := legacyID(id); legacy != id {
+		if _, ok := s.state.Saved[legacy]; ok {
+			delete(s.state.Saved, legacy)
+			s.dirty = true
+			return false
+		}
+	}
 	s.state.Saved[id] = time.Now()
 	s.dirty = true
 	return true
+}
+
+func legacyID(id string) string {
+	if sourceEnd := strings.IndexByte(id, 0); sourceEnd >= 0 {
+		return id[sourceEnd+1:]
+	}
+	return id
 }
 
 // Prune remove registros de matérias que saíram do feed há mais de `maxAge`,
