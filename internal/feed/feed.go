@@ -104,6 +104,11 @@ var ExternalSources = []Source{
 	Poder360Source,
 }
 
+// AllSources devolve as fontes canônicas, na ordem fixa do leitor.
+func AllSources() []Source {
+	return append([]Source{CNNBrasilSource}, ExternalSources...)
+}
+
 func (s Source) key() string {
 	if s.ID != "" {
 		return s.ID
@@ -115,7 +120,7 @@ func (s Source) key() string {
 // fontes externas; as demais continuam sendo recortes do feed da CNN Brasil.
 func SourcesFor(s Section) []Source {
 	if s.Cat == 0 {
-		return append([]Source{CNNBrasilSource}, ExternalSources...)
+		return AllSources()
 	}
 	return []Source{CNNBrasilSource}
 }

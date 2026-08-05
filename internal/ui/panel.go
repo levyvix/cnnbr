@@ -10,6 +10,7 @@ import (
 	tea "github.com/charmbracelet/bubbletea"
 	"github.com/charmbracelet/lipgloss"
 
+	"github.com/levyvix/cnnbr/internal/feed"
 	"github.com/levyvix/cnnbr/internal/prefs"
 	"github.com/levyvix/cnnbr/internal/speech"
 )
@@ -243,19 +244,27 @@ func formatRate(n int64) string {
 // panelRow é uma linha do painel: um subtítulo de grupo, que o cursor pula, uma
 // preferência escalar, ou uma seção.
 type panelRow struct {
-	title   string
-	pref    *preference
-	section *int // índice da aba em m.tabs, quando a linha é uma seção
+	title        string
+	pref         *preference
+	sourceHealth *int // índice em m.sourceHealth, quando a linha é uma fonte RSS
+	section      *int // índice da seção em m.tabs, quando a linha é uma seção
 }
 
 // selectable diz se o cursor pousa nesta linha. Subtítulos, não.
-func (r panelRow) selectable() bool { return r.pref != nil || r.section != nil }
+func (r panelRow) selectable() bool {
+	return r.pref != nil || r.sourceHealth != nil || r.section != nil
+}
 
 // panelRows é a lista plana do painel. As linhas de seção dependem do estado do
 // modelo — a ordem delas é a da barra de abas, que muda com J/K.
 func (m Model) panelRows() []panelRow {
-	rows := make([]panelRow, 0, len(prefRows)+1+len(m.order))
+	rows := make([]panelRow, 0, len(prefRows)+2+len(m.sourceHealth)+len(m.order))
 	rows = append(rows, prefRows...)
+	rows = append(rows, panelRow{title: "Fontes RSS"})
+	for i := range m.sourceHealth {
+		idx := i
+		rows = append(rows, panelRow{sourceHealth: &idx})
+	}
 	rows = append(rows, panelRow{title: "Seções"})
 	for _, idx := range m.order {
 		rows = append(rows, panelRow{section: &idx})
@@ -394,6 +403,8 @@ func (m Model) rowLabel(r panelRow) string {
 	switch {
 	case r.pref != nil:
 		return r.pref.label
+	case r.sourceHealth != nil:
+		return m.sourceHealth[*r.sourceHealth].SourceName
 	case r.section != nil:
 		return m.tabs[*r.section].section.Name
 	}
@@ -405,6 +416,8 @@ func (m Model) rowValue(r panelRow) (value, note string) {
 	switch {
 	case r.pref != nil:
 		return r.pref.display(m.prefs), r.pref.note
+	case r.sourceHealth != nil:
+		return sourceHealthValue(m.sourceHealth[*r.sourceHealth])
 	case r.section != nil:
 		if m.tabs[*r.section].hidden {
 			return "oculta", ""
@@ -412,6 +425,29 @@ func (m Model) rowValue(r panelRow) (value, note string) {
 		return "visível", ""
 	}
 	return "", ""
+}
+
+func sourceHealthValue(h feed.SourceHealth) (value, note string) {
+	switch h.Status {
+	case feed.SourceOK:
+		value = "OK"
+	case feed.SourceFailed:
+		value = "falhou"
+	default:
+		value = "nunca carregou"
+	}
+
+	var notes []string
+	if !h.LastSuccess.IsZero() {
+		notes = append(notes, "último sucesso "+relativeTime(h.LastSuccess))
+	}
+	if !h.LastErrorAt.IsZero() {
+		notes = append(notes, "último erro "+relativeTime(h.LastErrorAt))
+	}
+	if h.LastError != "" {
+		notes = append(notes, h.LastError)
+	}
+	return value, strings.Join(notes, " · ")
 }
 
 func (m Model) viewPanelRow(r panelRow, i, width int) string {

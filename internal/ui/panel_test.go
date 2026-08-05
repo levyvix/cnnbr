@@ -1,6 +1,7 @@
 package ui
 
 import (
+	"net/http"
 	"path/filepath"
 	"reflect"
 	"strings"
@@ -9,6 +10,7 @@ import (
 
 	tea "github.com/charmbracelet/bubbletea"
 
+	"github.com/levyvix/cnnbr/internal/feed"
 	"github.com/levyvix/cnnbr/internal/prefs"
 	"github.com/levyvix/cnnbr/internal/store"
 )
@@ -225,6 +227,91 @@ func findPref(t *testing.T, label string) preference {
 	}
 	t.Fatalf("o painel não tem a linha %q", label)
 	return preference{}
+}
+
+func TestPanelShowsRSSHealth(t *testing.T) {
+	m := openPanel(t, newTestModel(t))
+	next, _ := m.Update(tea.WindowSizeMsg{Width: 160, Height: 24})
+	m = next.(Model)
+	m.sourceHealth = []feed.SourceHealth{
+		{
+			SourceID:    "ok",
+			SourceName:  "Fonte OK",
+			Status:      feed.SourceOK,
+			LastSuccess: time.Now().Add(-time.Hour),
+		},
+		{
+			SourceID:    "falha",
+			SourceName:  "Fonte Falha",
+			Status:      feed.SourceFailed,
+			LastSuccess: time.Now().Add(-2 * time.Hour),
+			LastErrorAt: time.Now().Add(-time.Minute),
+			LastError:   "feed respondeu 502 Bad Gateway",
+		},
+		{
+			SourceID:   "nunca",
+			SourceName: "Fonte Nunca",
+			Status:     feed.SourceNeverLoaded,
+		},
+	}
+
+	view := m.View()
+	for _, want := range []string{
+		"Fontes RSS",
+		"Fonte OK", "OK", "último sucesso",
+		"Fonte Falha", "falhou", "último erro", "feed respondeu 502 Bad Gateway",
+		"Fonte Nunca", "nunca carregou",
+	} {
+		if !strings.Contains(view, want) {
+			t.Fatalf("painel não mostrou %q:\n%s", want, view)
+		}
+	}
+}
+
+func TestPanelHealthRowsAreReadOnly(t *testing.T) {
+	m := openPanel(t, newTestModel(t))
+	for i, r := range m.panelRows() {
+		if r.sourceHealth != nil {
+			m.panel.cursor = i
+			break
+		}
+	}
+
+	before := m.Chosen()
+	m = press(t, m, " ", "l", "h", "J", "K")
+	if !reflect.DeepEqual(m.Chosen(), before) {
+		t.Fatalf("linha de saúde alterou preferências: %+v", m.Chosen())
+	}
+}
+
+func TestOpeningPanelDoesNotFetch(t *testing.T) {
+	transport := &countingRoundTripper{}
+	m := New(Config{
+		Client: &http.Client{Transport: transport},
+		Cache:  feed.Cache{Dir: t.TempDir(), TTL: time.Hour},
+		Store:  store.New(filepath.Join(t.TempDir(), "state.json")),
+	}, prefs.Defaults())
+
+	next, cmd := m.Update(keyMsg("c"))
+	m = next.(Model)
+	if m.mode != modePanel {
+		t.Fatalf("c abriu modo %v, quero painel", m.mode)
+	}
+	if cmd != nil {
+		t.Fatal("abrir o painel não deveria devolver comando")
+	}
+	if transport.calls != 0 {
+		t.Fatalf("abrir o painel fez %d requisições", transport.calls)
+	}
+}
+
+type countingRoundTripper struct {
+	calls int
+}
+
+func (rt *countingRoundTripper) RoundTrip(*http.Request) (*http.Response, error) {
+	rt.calls++
+	return nil, http.ErrHandlerTimeout
 }
 
 func TestPanelAppliesJustifyAndTTLImmediately(t *testing.T) {

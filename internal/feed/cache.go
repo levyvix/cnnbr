@@ -32,6 +32,30 @@ type cacheFile struct {
 	Items     []Item    `json:"items"`
 }
 
+type SourceHealthStatus string
+
+const (
+	SourceOK          SourceHealthStatus = "ok"
+	SourceFailed      SourceHealthStatus = "failed"
+	SourceNeverLoaded SourceHealthStatus = "never_loaded"
+)
+
+// SourceHealth descreve a última saúde conhecida de uma fonte RSS.
+type SourceHealth struct {
+	SourceID    string             `json:"source_id"`
+	SourceName  string             `json:"source_name"`
+	Status      SourceHealthStatus `json:"status"`
+	LastSuccess time.Time          `json:"last_success,omitempty"`
+	LastErrorAt time.Time          `json:"last_error_at,omitempty"`
+	LastError   string             `json:"last_error,omitempty"`
+}
+
+type sourceHealthFile struct {
+	Sources map[string]SourceHealth `json:"sources"`
+}
+
+var sourceHealthMu sync.Mutex
+
 // DefaultCache aponta para $XDG_CACHE_HOME/cnnbr.
 func DefaultCache(ttl time.Duration) Cache {
 	dir, err := os.UserCacheDir()
@@ -43,6 +67,10 @@ func DefaultCache(ttl time.Duration) Cache {
 
 func (c Cache) path(source, slug string) string {
 	return filepath.Join(c.Dir, "feed-"+cacheKey(source)+"-"+cacheKey(slug)+".json")
+}
+
+func (c Cache) sourceHealthPath() string {
+	return filepath.Join(c.Dir, "source-health.json")
 }
 
 // Load devolve os itens em cache de uma fonte e seção e quando foram buscados.
@@ -100,6 +128,99 @@ func retainRecentItems(items []Item, fetchedAt, now time.Time) []Item {
 	return kept
 }
 
+// LoadSourceHealth devolve a saúde conhecida das fontes, sem consultar a rede.
+func (c Cache) LoadSourceHealth(sources []Source) []SourceHealth {
+	sourceHealthMu.Lock()
+	defer sourceHealthMu.Unlock()
+
+	known := c.loadSourceHealthLocked()
+	health := make([]SourceHealth, 0, len(sources))
+	for _, source := range sources {
+		key := source.key()
+		h, ok := known[key]
+		if !ok {
+			h = SourceHealth{SourceID: key, SourceName: source.Name, Status: SourceNeverLoaded}
+		}
+		h.SourceID = key
+		h.SourceName = source.Name
+		if h.Status == "" {
+			h.Status = SourceNeverLoaded
+		}
+		health = append(health, h)
+	}
+	return health
+}
+
+func (c Cache) recordSourceSuccess(source Source, at time.Time) SourceHealth {
+	return c.recordSourceHealth(source, func(h *SourceHealth) {
+		h.Status = SourceOK
+		h.LastSuccess = at
+	})
+}
+
+func (c Cache) recordSourceFailure(source Source, err error, at time.Time) SourceHealth {
+	return c.recordSourceHealth(source, func(h *SourceHealth) {
+		h.Status = SourceFailed
+		h.LastErrorAt = at
+		if err != nil {
+			h.LastError = err.Error()
+		}
+	})
+}
+
+func (c Cache) ensureSourceSuccess(source Source, at time.Time) SourceHealth {
+	return c.recordSourceHealth(source, func(h *SourceHealth) {
+		if h.LastSuccess.IsZero() || h.LastSuccess.Before(at) {
+			h.LastSuccess = at
+		}
+		if h.Status == SourceNeverLoaded || h.Status == "" {
+			h.Status = SourceOK
+		}
+	})
+}
+
+func (c Cache) recordSourceHealth(source Source, update func(*SourceHealth)) SourceHealth {
+	sourceHealthMu.Lock()
+	defer sourceHealthMu.Unlock()
+
+	known := c.loadSourceHealthLocked()
+	key := source.key()
+	h := known[key]
+	h.SourceID = key
+	h.SourceName = source.Name
+	update(&h)
+	known[key] = h
+	_ = c.saveSourceHealthLocked(known)
+	return h
+}
+
+func (c Cache) loadSourceHealthLocked() map[string]SourceHealth {
+	data, err := os.ReadFile(c.sourceHealthPath())
+	if err != nil {
+		return map[string]SourceHealth{}
+	}
+	var doc sourceHealthFile
+	if err := json.Unmarshal(data, &doc); err != nil || doc.Sources == nil {
+		return map[string]SourceHealth{}
+	}
+	return doc.Sources
+}
+
+func (c Cache) saveSourceHealthLocked(sources map[string]SourceHealth) error {
+	if err := os.MkdirAll(c.Dir, 0o755); err != nil {
+		return err
+	}
+	data, err := json.Marshal(sourceHealthFile{Sources: sources})
+	if err != nil {
+		return err
+	}
+	tmp := c.sourceHealthPath() + ".tmp"
+	if err := os.WriteFile(tmp, data, 0o644); err != nil {
+		return err
+	}
+	return os.Rename(tmp, c.sourceHealthPath())
+}
+
 // Result é o desfecho de um Get: itens, quando foram buscados e se vieram do
 // cache. Err traz o motivo de a rede ter falhado quando o cache salvou o dia.
 type Result struct {
@@ -108,6 +229,7 @@ type Result struct {
 	FetchedAt time.Time
 	FromCache bool
 	Err       error
+	Health    []SourceHealth
 }
 
 // Get devolve o feed de uma seção, preferindo o cache enquanto ele estiver
@@ -139,12 +261,14 @@ func GetSources(ctx context.Context, client *http.Client, c Cache, sources []Sou
 
 	var (
 		items     []Item
+		health    []SourceHealth
 		firstErr  error
 		fetchedAt time.Time
 		fromCache = true
 	)
 	for result := range results {
 		items = append(items, result.Items...)
+		health = append(health, result.Health...)
 		if result.Err != nil && firstErr == nil {
 			firstErr = result.Err
 		}
@@ -159,7 +283,7 @@ func GetSources(ctx context.Context, client *http.Client, c Cache, sources []Sou
 	sort.SliceStable(items, func(i, j int) bool {
 		return items[i].Published.After(items[j].Published)
 	})
-	result := Result{Section: s, Items: items, FetchedAt: fetchedAt, FromCache: fromCache}
+	result := Result{Section: s, Items: items, FetchedAt: fetchedAt, FromCache: fromCache, Health: health}
 	if len(items) == 0 {
 		result.Err = firstErr
 	}
@@ -173,21 +297,24 @@ func GetSource(ctx context.Context, client *http.Client, c Cache, source Source,
 	fresh := cacheErr == nil && len(cached) > 0 && time.Since(fetchedAt) < c.TTL
 
 	if !force && fresh {
-		return Result{Section: s, Items: cached, FetchedAt: fetchedAt, FromCache: true}
+		health := c.ensureSourceSuccess(source, fetchedAt)
+		return Result{Section: s, Items: cached, FetchedAt: fetchedAt, FromCache: true, Health: []SourceHealth{health}}
 	}
 
 	items, err := FetchSource(ctx, client, source, s.Cat, pages)
 	if err != nil {
+		health := c.recordSourceFailure(source, err, nowFn())
 		if cacheErr == nil && len(cached) > 0 {
-			return Result{Section: s, Items: cached, FetchedAt: fetchedAt, FromCache: true, Err: err}
+			return Result{Section: s, Items: cached, FetchedAt: fetchedAt, FromCache: true, Err: err, Health: []SourceHealth{health}}
 		}
-		return Result{Section: s, Err: err}
+		return Result{Section: s, Err: err, Health: []SourceHealth{health}}
 	}
 
 	now := nowFn()
+	health := c.recordSourceSuccess(source, now)
 	// Falha ao gravar o cache não impede a leitura.
 	_ = c.Save(source.key(), s.Slug, items, now)
-	return Result{Section: s, Items: items, FetchedAt: now}
+	return Result{Section: s, Items: items, FetchedAt: now, Health: []SourceHealth{health}}
 }
 
 // errStaleCache marca um arquivo de cache gravado por uma versão anterior.

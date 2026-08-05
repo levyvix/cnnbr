@@ -89,8 +89,9 @@ type Model struct {
 	statusErr  bool
 	showHelp   bool
 
-	panel  panelState
-	speech speechState
+	panel        panelState
+	sourceHealth []feed.SourceHealth
+	speech       speechState
 
 	reader     viewport.Model
 	readingIdx int // índice em tabs[active].items da matéria aberta
@@ -122,7 +123,14 @@ func New(cfg Config, p prefs.Prefs) Model {
 		order = append(order, idx)
 	}
 
-	m := Model{cfg: cfg, prefs: p, tabs: tabs, order: order, reader: viewport.New(80, 20)}
+	m := Model{
+		cfg:          cfg,
+		prefs:        p,
+		tabs:         tabs,
+		order:        order,
+		reader:       viewport.New(80, 20),
+		sourceHealth: cfg.Cache.LoadSourceHealth(feed.AllSources()),
+	}
 	m.rebuildVisible()
 	// A primeira aba visível é a ativa: a Home pode estar oculta.
 	if len(m.visible) > 0 {
@@ -243,6 +251,7 @@ func (m Model) handleFeed(res feed.Result) (tea.Model, tea.Cmd) {
 
 	t := &m.tabs[idx]
 	t.loading = false
+	m.updateSourceHealth(res.Health)
 
 	if res.Err != nil && len(res.Items) == 0 {
 		t.err = res.Err
@@ -264,6 +273,24 @@ func (m Model) handleFeed(res feed.Result) (tea.Model, tea.Cmd) {
 		return m, statusErr("sem rede — mostrando cache")
 	}
 	return m, nil
+}
+
+func (m *Model) updateSourceHealth(health []feed.SourceHealth) {
+	if len(health) == 0 {
+		return
+	}
+	at := make(map[string]int, len(m.sourceHealth))
+	for i, h := range m.sourceHealth {
+		at[h.SourceID] = i
+	}
+	for _, h := range health {
+		if i, ok := at[h.SourceID]; ok {
+			m.sourceHealth[i] = h
+			continue
+		}
+		at[h.SourceID] = len(m.sourceHealth)
+		m.sourceHealth = append(m.sourceHealth, h)
+	}
 }
 
 // handleMouse trata a roda do mouse: quem já tem a mão no mouse não deveria

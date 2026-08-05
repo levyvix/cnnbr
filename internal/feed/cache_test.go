@@ -134,3 +134,103 @@ func TestGetSourcesKeepsCNNWhenG1Fails(t *testing.T) {
 		t.Fatalf("itens após falha do G1 = %#v, quero a CNN", result.Items)
 	}
 }
+
+func TestSourceHealthRecordsSuccessAndFailure(t *testing.T) {
+	now := time.Date(2026, time.August, 5, 12, 0, 0, 0, time.UTC)
+	previousNow := nowFn
+	nowFn = func() time.Time { return now }
+	t.Cleanup(func() { nowFn = previousNow })
+
+	fail := false
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		if fail {
+			http.Error(w, "indisponível", http.StatusBadGateway)
+			return
+		}
+		_, _ = w.Write([]byte(`<rss><channel><item>
+			<title>Fonte OK</title><link>https://example.com/ok</link>
+			<pubDate>Wed, 05 Aug 2026 11:00:00 -0300</pubDate>
+		</item></channel></rss>`))
+	}))
+	t.Cleanup(server.Close)
+
+	source := Source{ID: "teste", Name: "Fonte Teste", FeedURL: server.URL}
+	cache := Cache{Dir: t.TempDir(), TTL: 365 * 24 * time.Hour}
+	result := GetSource(context.Background(), server.Client(), cache, source, Sections[0], 1, true)
+	if result.Err != nil {
+		t.Fatal(result.Err)
+	}
+	if len(result.Health) != 1 || result.Health[0].Status != SourceOK || !result.Health[0].LastSuccess.Equal(now) {
+		t.Fatalf("saúde após sucesso = %#v, quero OK com último sucesso", result.Health)
+	}
+
+	fail = true
+	later := now.Add(time.Hour)
+	nowFn = func() time.Time { return later }
+	result = GetSource(context.Background(), server.Client(), cache, source, Sections[0], 1, true)
+	if result.Err == nil || len(result.Items) == 0 {
+		t.Fatalf("falha deveria voltar ao cache com erro: %#v", result)
+	}
+	if len(result.Health) != 1 || result.Health[0].Status != SourceFailed {
+		t.Fatalf("saúde após falha = %#v, quero falhou", result.Health)
+	}
+	if !result.Health[0].LastSuccess.Equal(now) || !result.Health[0].LastErrorAt.Equal(later) || result.Health[0].LastError == "" {
+		t.Fatalf("saúde não preservou sucesso/erro: %#v", result.Health[0])
+	}
+
+	loaded := cache.LoadSourceHealth([]Source{source, {ID: "nunca", Name: "Nunca"}})
+	if loaded[0].Status != SourceFailed || loaded[1].Status != SourceNeverLoaded {
+		t.Fatalf("LoadSourceHealth = %#v, quero falhou e nunca carregou", loaded)
+	}
+}
+
+func TestSourceHealthBackfillsFreshCacheHit(t *testing.T) {
+	now := time.Date(2026, time.August, 5, 12, 0, 0, 0, time.UTC)
+	previousNow := nowFn
+	nowFn = func() time.Time { return now.Add(time.Minute) }
+	t.Cleanup(func() { nowFn = previousNow })
+
+	cache := Cache{Dir: t.TempDir(), TTL: 365 * 24 * time.Hour}
+	source := Source{ID: "cache", Name: "Fonte Cache", FeedURL: "https://example.com/feed"}
+	if err := cache.Save(source.key(), "home", []Item{{Title: "cache", Link: "https://example.com/cache", Published: now}}, now); err != nil {
+		t.Fatal(err)
+	}
+
+	result := GetSource(context.Background(), http.DefaultClient, cache, source, Sections[0], 1, false)
+	if result.Err != nil || !result.FromCache {
+		t.Fatalf("GetSource = %#v, quero cache fresco", result)
+	}
+	if len(result.Health) != 1 || result.Health[0].Status != SourceOK || !result.Health[0].LastSuccess.Equal(now) {
+		t.Fatalf("saúde do cache fresco = %#v, quero OK com fetchedAt", result.Health)
+	}
+}
+
+func TestGetSourcesReportsHealthForPartialFailure(t *testing.T) {
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if strings.HasPrefix(r.URL.Path, "/falha") {
+			http.Error(w, "indisponível", http.StatusBadGateway)
+			return
+		}
+		_, _ = w.Write([]byte(`<rss><channel><item>
+			<title>Fonte OK</title><link>https://example.com/ok</link>
+			<pubDate>Wed, 05 Aug 2026 11:00:00 -0300</pubDate>
+		</item></channel></rss>`))
+	}))
+	t.Cleanup(server.Close)
+
+	result := GetSources(context.Background(), server.Client(), Cache{Dir: t.TempDir(), TTL: time.Hour}, []Source{
+		{ID: "ok", Name: "OK", FeedURL: server.URL + "/ok"},
+		{ID: "falha", Name: "Falha", FeedURL: server.URL + "/falha"},
+	}, Sections[0], 1, true)
+
+	if result.Err != nil || len(result.Items) != 1 {
+		t.Fatalf("falha parcial não deveria derrubar agregado: %#v", result)
+	}
+	statuses := map[string]SourceHealthStatus{}
+	for _, health := range result.Health {
+		statuses[health.SourceID] = health.Status
+	}
+	if statuses["ok"] != SourceOK || statuses["falha"] != SourceFailed {
+		t.Fatalf("saúde agregada = %#v, quero ok/falhou", result.Health)
+	}
+}
