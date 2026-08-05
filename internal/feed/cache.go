@@ -112,14 +112,20 @@ type Result struct {
 // dentro do TTL. Com force=true a rede é sempre consultada, mas um erro cai de
 // volta no cache.
 func Get(ctx context.Context, client *http.Client, c Cache, s Section, pages int, force bool) Result {
-	cached, fetchedAt, cacheErr := c.Load(SourceCNNBrasil, s.Slug)
+	return GetSource(ctx, client, c, CNNBrasilSource, s, pages, force)
+}
+
+// GetSource devolve o feed de uma fonte e seção, preferindo o cache enquanto
+// ele estiver dentro do TTL.
+func GetSource(ctx context.Context, client *http.Client, c Cache, source Source, s Section, pages int, force bool) Result {
+	cached, fetchedAt, cacheErr := c.Load(source.Name, s.Slug)
 	fresh := cacheErr == nil && len(cached) > 0 && time.Since(fetchedAt) < c.TTL
 
 	if !force && fresh {
 		return Result{Section: s, Items: cached, FetchedAt: fetchedAt, FromCache: true}
 	}
 
-	items, err := Fetch(ctx, client, s.Cat, pages)
+	items, err := FetchSource(ctx, client, source, s.Cat, pages)
 	if err != nil {
 		if cacheErr == nil && len(cached) > 0 {
 			return Result{Section: s, Items: cached, FetchedAt: fetchedAt, FromCache: true, Err: err}
@@ -129,7 +135,7 @@ func Get(ctx context.Context, client *http.Client, c Cache, s Section, pages int
 
 	now := nowFn()
 	// Falha ao gravar o cache não impede a leitura.
-	_ = c.Save(SourceCNNBrasil, s.Slug, items, now)
+	_ = c.Save(source.Name, s.Slug, items, now)
 	return Result{Section: s, Items: items, FetchedAt: now}
 }
 

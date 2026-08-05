@@ -23,6 +23,15 @@ const FeedURL = "https://admin.cnnbrasil.com.br/feed/"
 // SourceCNNBrasil é a fonte dos feeds que o leitor consome hoje.
 const SourceCNNBrasil = "CNN Brasil"
 
+// Source descreve uma fonte RSS que o leitor pode consumir.
+type Source struct {
+	Name    string
+	FeedURL string
+}
+
+// CNNBrasilSource é a fonte configurada atualmente.
+var CNNBrasilSource = Source{Name: SourceCNNBrasil, FeedURL: FeedURL}
+
 const userAgent = "Mozilla/5.0 (X11; Linux x86_64) cnnbr/0.1"
 
 // Item é uma matéria do feed.
@@ -66,6 +75,11 @@ type rss struct {
 // deduplicados por link, do mais recente para o mais antigo. Com cat > 0 o feed
 // vem filtrado por categoria.
 func Fetch(ctx context.Context, client *http.Client, cat, pages int) ([]Item, error) {
+	return FetchSource(ctx, client, CNNBrasilSource, cat, pages)
+}
+
+// FetchSource busca páginas de uma fonte RSS e devolve os itens deduplicados.
+func FetchSource(ctx context.Context, client *http.Client, source Source, cat, pages int) ([]Item, error) {
 	if pages < 1 {
 		pages = 1
 	}
@@ -74,7 +88,7 @@ func Fetch(ctx context.Context, client *http.Client, cat, pages int) ([]Item, er
 	var all []Item
 
 	for page := 1; page <= pages; page++ {
-		items, err := fetchPage(ctx, client, cat, page)
+		items, err := fetchPage(ctx, client, source, cat, page)
 		if err != nil {
 			// Uma página posterior que falha não invalida o que já veio.
 			if len(all) > 0 {
@@ -98,7 +112,7 @@ func Fetch(ctx context.Context, client *http.Client, cat, pages int) ([]Item, er
 	return all, nil
 }
 
-func fetchPage(ctx context.Context, client *http.Client, cat, page int) ([]Item, error) {
+func fetchPage(ctx context.Context, client *http.Client, source Source, cat, page int) ([]Item, error) {
 	q := url.Values{}
 	if cat > 0 {
 		q.Set("cat", strconv.Itoa(cat))
@@ -106,7 +120,7 @@ func fetchPage(ctx context.Context, client *http.Client, cat, page int) ([]Item,
 	if page > 1 {
 		q.Set("paged", strconv.Itoa(page))
 	}
-	u := FeedURL
+	u := source.FeedURL
 	if len(q) > 0 {
 		u += "?" + q.Encode()
 	}
@@ -127,11 +141,16 @@ func fetchPage(ctx context.Context, client *http.Client, cat, page int) ([]Item,
 	if resp.StatusCode != http.StatusOK {
 		return nil, fmt.Errorf("feed respondeu %s", resp.Status)
 	}
-	return Parse(resp.Body)
+	return ParseSource(resp.Body, source)
 }
 
 // Parse decodifica um feed RSS da CNN Brasil.
 func Parse(r io.Reader) ([]Item, error) {
+	return ParseSource(r, CNNBrasilSource)
+}
+
+// ParseSource decodifica um feed RSS e associa a fonte a cada item.
+func ParseSource(r io.Reader, source Source) ([]Item, error) {
 	var doc rss
 	if err := xml.NewDecoder(r).Decode(&doc); err != nil {
 		return nil, fmt.Errorf("decodificando RSS: %w", err)
@@ -145,7 +164,7 @@ func Parse(r io.Reader) ([]Item, error) {
 		}
 		cats := cleanCategories(raw.Categories)
 		outItems = append(outItems, Item{
-			Source:     SourceCNNBrasil,
+			Source:     source.Name,
 			Title:      strings.TrimSpace(raw.Title),
 			Link:       link,
 			Author:     strings.TrimSpace(raw.Creator),
