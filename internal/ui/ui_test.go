@@ -2,6 +2,7 @@ package ui
 
 import (
 	"path/filepath"
+	"strings"
 	"testing"
 
 	tea "github.com/charmbracelet/bubbletea"
@@ -118,6 +119,24 @@ func TestJustifyToggleIsTheOnlyPrefChosen(t *testing.T) {
 	// flag nesta execução.
 	if chosen.Pages != nil || chosen.TTL != nil || chosen.RetentionDays != nil {
 		t.Errorf("t mexeu em preferência que não pediu: %+v", chosen)
+	}
+}
+
+func TestHomeIdentifiesItemsBySource(t *testing.T) {
+	m := newTestModel(t)
+	m.tabs[0].items = []feed.Item{{
+		Source:   feed.SourceG1,
+		SourceID: feed.SourceG1ID,
+		Title:    "Uma matéria do G1",
+		Link:     "https://g1.globo.com/politica/noticia/uma-materia.ghtml",
+	}}
+	m.tabs[0].loaded = true
+	m.rebuildView(0)
+
+	next, _ := m.Update(tea.WindowSizeMsg{Width: 100, Height: 24})
+	view := next.(Model).View()
+	if !strings.Contains(view, "G1") {
+		t.Errorf("a Home não identificou a fonte na lista:\n%s", view)
 	}
 }
 

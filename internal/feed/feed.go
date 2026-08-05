@@ -20,7 +20,7 @@ import (
 // FeedURL é o host que responde de fato ao /feed/ (www redireciona para cá).
 const FeedURL = "https://admin.cnnbrasil.com.br/feed/"
 
-// SourceCNNBrasil é a fonte dos feeds que o leitor consome hoje.
+// SourceCNNBrasil é a fonte dos feeds da CNN Brasil.
 const SourceCNNBrasil = "CNN Brasil"
 
 // SourceCNNBrasilID é a identidade estável da fonte da CNN.
@@ -36,11 +36,32 @@ type Source struct {
 // CNNBrasilSource é a fonte configurada atualmente.
 var CNNBrasilSource = Source{ID: SourceCNNBrasilID, Name: SourceCNNBrasil, FeedURL: FeedURL}
 
+// G1FeedURL é o RSS oficial do feed geral do G1.
+const G1FeedURL = "https://g1.globo.com/rss/g1/"
+
+// SourceG1 é o nome exibido para a fonte do G1.
+const SourceG1 = "g1"
+
+// SourceG1ID é a identidade estável da fonte do G1.
+const SourceG1ID = "g1"
+
+// G1Source é a fonte externa que aparece na Home.
+var G1Source = Source{ID: SourceG1ID, Name: SourceG1, FeedURL: G1FeedURL}
+
 func (s Source) key() string {
 	if s.ID != "" {
 		return s.ID
 	}
 	return s.Name
+}
+
+// SourcesFor devolve as fontes que alimentam uma seção. Só a Home agrega o
+// G1; as demais continuam sendo recortes do feed da CNN Brasil.
+func SourcesFor(s Section) []Source {
+	if s.Cat == 0 {
+		return []Source{CNNBrasilSource, G1Source}
+	}
+	return []Source{CNNBrasilSource}
 }
 
 const userAgent = "Mozilla/5.0 (X11; Linux x86_64) cnnbr/0.1"

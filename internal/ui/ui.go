@@ -182,7 +182,7 @@ func (m Model) fetch(s feed.Section, force bool) tea.Cmd {
 	return func() tea.Msg {
 		ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
 		defer cancel()
-		return feedMsg(feed.Get(ctx, cfg.Client, cfg.Cache, s, pages, force))
+		return feedMsg(feed.GetSources(ctx, cfg.Client, cfg.Cache, feed.SourcesFor(s), s, pages, force))
 	}
 }
 

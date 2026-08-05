@@ -8,6 +8,7 @@ import (
 	"github.com/muesli/reflow/truncate"
 
 	"github.com/levyvix/cnnbr/internal/article"
+	"github.com/levyvix/cnnbr/internal/feed"
 	"github.com/levyvix/cnnbr/internal/render"
 )
 
@@ -219,11 +220,17 @@ func (m Model) viewItem(i int) []string {
 	}
 	title := style.Render(truncate.StringWithTail(it.Title, uint(titleWidth), "…"))
 
-	// Na Home o rótulo útil é a seção; dentro de uma seção ela é redundante,
-	// então mostramos a editoria específica (Brasileirão, Eleições, …).
-	label := it.Section
-	if t.section.Cat != 0 && it.Subsection != "" {
-		label = it.Subsection
+	// Na Home a fonte distingue matérias de sites diferentes; dentro de uma
+	// seção a fonte é redundante e mostramos a editoria específica.
+	label := it.Source
+	if label == "" {
+		label = feed.SourceCNNBrasil
+	}
+	if t.section.Cat != 0 {
+		label = it.Section
+		if it.Subsection != "" {
+			label = it.Subsection
+		}
 	}
 
 	meta := []string{strings.ToUpper(label)}

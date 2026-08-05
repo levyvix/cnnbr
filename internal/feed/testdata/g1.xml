@@ -1,0 +1,20 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<rss version="2.0" xmlns:atom="http://www.w3.org/2005/Atom">
+  <channel>
+    <title>G1</title>
+    <item>
+      <title>G1 com corpo completo</title>
+      <link>https://g1.globo.com/politica/noticia/2026/08/05/com-corpo.ghtml</link>
+      <description><![CDATA[Resumo do G1.]]></description>
+      <pubDate>Wed, 05 Aug 2026 12:00:00 -0300</pubDate>
+      <content:encoded xmlns:content="http://purl.org/rss/1.0/modules/content/"><![CDATA[<p>Corpo do G1.</p>]]></content:encoded>
+    </item>
+    <item>
+      <title>G1 sem corpo completo</title>
+      <link>https://g1.globo.com/sp/sao-paulo/noticia/2026/08/05/sem-corpo.ghtml</link>
+      <atom:subtitle>Resumo sem corpo.</atom:subtitle>
+      <description><![CDATA[Resumo sem corpo.]]></description>
+      <pubDate>Wed, 05 Aug 2026 11:00:00 -0000</pubDate>
+    </item>
+  </channel>
+</rss>
