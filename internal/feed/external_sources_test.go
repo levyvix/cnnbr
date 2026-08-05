@@ -5,6 +5,7 @@ import (
 	"os"
 	"path/filepath"
 	"testing"
+	"time"
 )
 
 func TestExternalSourcesHaveFixturesAndParse(t *testing.T) {
@@ -44,6 +45,35 @@ func TestParseSupportsLatin1RSS(t *testing.T) {
 	}
 	if got := items[0].Title; got != "Café" {
 		t.Errorf("título Latin-1 = %q, quero %q", got, "Café")
+	}
+}
+
+func TestParseSupportsExternalDateFormats(t *testing.T) {
+	want := time.Date(2026, time.August, 5, 15, 20, 0, 0, time.FixedZone("BRT", -3*60*60))
+	for _, tc := range []struct {
+		name   string
+		date   string
+		source Source
+	}{
+		{name: "UOL em português", date: "Qua, 05 Ago 2026 15:20:00 -0300", source: UOLSource},
+		{name: "Folha sem dia da semana", date: "05 Aug 2026 15:20:00 -0300", source: FolhaSource},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			items, err := ParseSource(bytes.NewBufferString(`<rss><channel><item>
+				<title>Uma notícia</title>
+				<link>https://example.com/noticia</link>
+				<pubDate>`+tc.date+`</pubDate>
+			</item></channel></rss>`), tc.source)
+			if err != nil {
+				t.Fatal(err)
+			}
+			if len(items) != 1 {
+				t.Fatalf("Parse devolveu %d itens, quero 1", len(items))
+			}
+			if !items[0].Published.Equal(want) {
+				t.Errorf("data = %v, quero %v", items[0].Published, want)
+			}
+		})
 	}
 }
 

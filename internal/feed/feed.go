@@ -275,13 +275,48 @@ func ParseSource(r io.Reader, source Source) ([]Item, error) {
 }
 
 func parseDate(s string) time.Time {
-	s = strings.TrimSpace(s)
-	for _, layout := range []string{time.RFC1123Z, time.RFC1123, time.RFC822Z, time.RFC822} {
+	s = normalizeDate(strings.TrimSpace(s))
+	for _, layout := range []string{
+		time.RFC1123Z,
+		time.RFC1123,
+		time.RFC822Z,
+		time.RFC822,
+		"02 Jan 2006 15:04:05 -0700",
+		"02 Jan 2006 15:04:05 MST",
+		"02 Jan 06 15:04 -0700",
+	} {
 		if t, err := time.Parse(layout, s); nil == err {
 			return t.Local()
 		}
 	}
 	return time.Time{}
+}
+
+func normalizeDate(s string) string {
+	for portuguese, english := range map[string]string{
+		"Dom": "Sun",
+		"Seg": "Mon",
+		"Ter": "Tue",
+		"Qua": "Wed",
+		"Qui": "Thu",
+		"Sex": "Fri",
+		"Sáb": "Sat",
+		"Jan": "Jan",
+		"Fev": "Feb",
+		"Mar": "Mar",
+		"Abr": "Apr",
+		"Mai": "May",
+		"Jun": "Jun",
+		"Jul": "Jul",
+		"Ago": "Aug",
+		"Set": "Sep",
+		"Out": "Oct",
+		"Nov": "Nov",
+		"Dez": "Dec",
+	} {
+		s = strings.Replace(s, portuguese, english, 1)
+	}
+	return s
 }
 
 func cleanCategories(in []string) []string {
