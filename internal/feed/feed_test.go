@@ -1,6 +1,9 @@
 package feed
 
 import (
+	"context"
+	"net/http"
+	"net/http/httptest"
 	"os"
 	"strings"
 	"testing"
@@ -199,5 +202,69 @@ func TestDedupeAndOrder(t *testing.T) {
 			t.Errorf("ID duplicado: %s", it.ID())
 		}
 		seen[it.ID()] = true
+	}
+}
+
+func TestParseAssignsSource(t *testing.T) {
+	items, err := ParseSource(strings.NewReader(`<rss><channel><item>
+		<title>Uma notícia</title>
+		<link>https://www.cnnbrasil.com.br/politica/uma-noticia/</link>
+		<pubDate>Mon, 03 Aug 2026 12:00:00 -0300</pubDate>
+		<description>Um resumo.</description>
+		<category>Política</category>
+		<encoded><![CDATA[<p>O corpo.</p>]]></encoded>
+	</item></channel></rss>`), Source{Name: "Outra fonte", FeedURL: "https://example.com/feed"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(items) != 1 {
+		t.Fatalf("Parse devolveu %d itens, quero 1", len(items))
+	}
+	if got := items[0].Source; got != "Outra fonte" {
+		t.Errorf("Source = %q, quero %q", got, "Outra fonte")
+	}
+	if got := items[0].SourceID; got != "Outra fonte" {
+		t.Errorf("SourceID = %q, quero %q", got, "Outra fonte")
+	}
+}
+
+func TestFetchSourceUsesSourceFeed(t *testing.T) {
+	server := httptest.NewServer(httpHandler(`<rss><channel><item>
+		<title>Uma notícia externa</title>
+		<link>https://outra-fonte.example/noticia</link>
+		<pubDate>Mon, 03 Aug 2026 12:00:00 -0300</pubDate>
+	</item></channel></rss>`))
+	t.Cleanup(server.Close)
+
+	items, err := FetchSource(context.Background(), server.Client(), Source{
+		Name:    "Outra fonte",
+		FeedURL: server.URL,
+	}, 0, 1)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(items) != 1 || items[0].Source != "Outra fonte" {
+		t.Fatalf("FetchSource = %#v, quero uma notícia da outra fonte", items)
+	}
+}
+
+func httpHandler(body string) http.Handler {
+	return http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		w.Header().Set("Content-Type", "application/rss+xml")
+		_, _ = w.Write([]byte(body))
+	})
+}
+
+func TestItemIDIncludesSource(t *testing.T) {
+	const link = "https://example.com/noticia"
+
+	cnn := Item{Source: SourceCNNBrasil, SourceID: SourceCNNBrasilID, Link: link}
+	other := Item{Source: "Outra fonte", SourceID: "outra-fonte", Link: link}
+
+	if cnn.ID() == other.ID() {
+		t.Fatalf("fontes diferentes colidiram no ID: %q", cnn.ID())
+	}
+	if cnn.ID() != (Item{Source: SourceCNNBrasil, SourceID: SourceCNNBrasilID, Link: link}).ID() {
+		t.Error("o mesmo par fonte + URL não produziu ID estável")
 	}
 }

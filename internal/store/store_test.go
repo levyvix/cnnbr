@@ -41,6 +41,32 @@ func TestToggles(t *testing.T) {
 	}
 }
 
+func TestSourceAwareIDsKeepLegacyState(t *testing.T) {
+	const (
+		legacyID  = "https://cnn.example/noticia"
+		currentID = "cnnbrasil\x00" + legacyID
+	)
+
+	s := New(filepath.Join(t.TempDir(), "state.json"))
+	s.MarkRead(legacyID)
+	if !s.ToggleSaved(legacyID) {
+		t.Fatal("ToggleSaved deveria ativar")
+	}
+
+	if !s.IsRead(currentID) {
+		t.Error("o ID novo não encontrou a leitura persistida com o ID antigo")
+	}
+	if !s.IsSaved(currentID) {
+		t.Error("o ID novo não encontrou o favorito persistido com o ID antigo")
+	}
+	if s.ToggleRead(currentID) {
+		t.Error("ToggleRead deveria desligar a leitura antiga")
+	}
+	if s.ToggleSaved(currentID) {
+		t.Error("ToggleSaved deveria desligar o favorito antigo")
+	}
+}
+
 func TestPrunePreservaFavoritos(t *testing.T) {
 	path := filepath.Join(t.TempDir(), "state.json")
 	s := New(path)

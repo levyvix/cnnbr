@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"os"
 	"path/filepath"
+	"strings"
 	"sync"
 	"time"
 )
@@ -89,7 +90,7 @@ func (s *Store) Flush() error {
 func (s *Store) IsRead(id string) bool {
 	s.mu.Lock()
 	defer s.mu.Unlock()
-	_, ok := s.state.Read[id]
+	_, ok := s.state.Read[resolvedID(s.state.Read, id)]
 	return ok
 }
 
@@ -97,7 +98,13 @@ func (s *Store) IsRead(id string) bool {
 func (s *Store) MarkRead(id string) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
-	if _, ok := s.state.Read[id]; ok {
+	key := resolvedID(s.state.Read, id)
+	if at, ok := s.state.Read[key]; ok {
+		if key != id {
+			delete(s.state.Read, key)
+			s.state.Read[id] = at
+			s.dirty = true
+		}
 		return
 	}
 	s.state.Read[id] = time.Now()
@@ -108,8 +115,9 @@ func (s *Store) MarkRead(id string) {
 func (s *Store) ToggleRead(id string) bool {
 	s.mu.Lock()
 	defer s.mu.Unlock()
-	if _, ok := s.state.Read[id]; ok {
-		delete(s.state.Read, id)
+	key := resolvedID(s.state.Read, id)
+	if _, ok := s.state.Read[key]; ok {
+		delete(s.state.Read, key)
 		s.dirty = true
 		return false
 	}
@@ -122,7 +130,7 @@ func (s *Store) ToggleRead(id string) bool {
 func (s *Store) IsSaved(id string) bool {
 	s.mu.Lock()
 	defer s.mu.Unlock()
-	_, ok := s.state.Saved[id]
+	_, ok := s.state.Saved[resolvedID(s.state.Saved, id)]
 	return ok
 }
 
@@ -130,14 +138,32 @@ func (s *Store) IsSaved(id string) bool {
 func (s *Store) ToggleSaved(id string) bool {
 	s.mu.Lock()
 	defer s.mu.Unlock()
-	if _, ok := s.state.Saved[id]; ok {
-		delete(s.state.Saved, id)
+	key := resolvedID(s.state.Saved, id)
+	if _, ok := s.state.Saved[key]; ok {
+		delete(s.state.Saved, key)
 		s.dirty = true
 		return false
 	}
 	s.state.Saved[id] = time.Now()
 	s.dirty = true
 	return true
+}
+
+func legacyID(id string) string {
+	if sourceEnd := strings.IndexByte(id, 0); sourceEnd >= 0 {
+		return id[sourceEnd+1:]
+	}
+	return id
+}
+
+func resolvedID(entries map[string]time.Time, id string) string {
+	if _, ok := entries[id]; ok {
+		return id
+	}
+	if !strings.HasPrefix(id, "cnnbrasil\x00") {
+		return id
+	}
+	return legacyID(id)
 }
 
 // Prune remove registros de matérias que saíram do feed há mais de `maxAge`,

@@ -20,10 +20,35 @@ import (
 // FeedURL é o host que responde de fato ao /feed/ (www redireciona para cá).
 const FeedURL = "https://admin.cnnbrasil.com.br/feed/"
 
+// SourceCNNBrasil é a fonte dos feeds que o leitor consome hoje.
+const SourceCNNBrasil = "CNN Brasil"
+
+// SourceCNNBrasilID é a identidade estável da fonte da CNN.
+const SourceCNNBrasilID = "cnnbrasil"
+
+// Source descreve uma fonte RSS que o leitor pode consumir.
+type Source struct {
+	ID      string
+	Name    string
+	FeedURL string
+}
+
+// CNNBrasilSource é a fonte configurada atualmente.
+var CNNBrasilSource = Source{ID: SourceCNNBrasilID, Name: SourceCNNBrasil, FeedURL: FeedURL}
+
+func (s Source) key() string {
+	if s.ID != "" {
+		return s.ID
+	}
+	return s.Name
+}
+
 const userAgent = "Mozilla/5.0 (X11; Linux x86_64) cnnbr/0.1"
 
 // Item é uma matéria do feed.
 type Item struct {
+	Source     string
+	SourceID   string
 	Title      string
 	Link       string
 	Author     string
@@ -36,9 +61,18 @@ type Item struct {
 }
 
 // ID identifica a matéria de forma estável entre execuções. O <guid> do feed da
-// CNN não é confiável (vários itens compartilham o mesmo valor), então usamos o
-// link.
-func (i Item) ID() string { return i.Link }
+// CNN não é confiável (vários itens compartilham o mesmo valor), então usamos a
+// fonte e o link.
+func (i Item) ID() string {
+	source := i.SourceID
+	if source == "" {
+		source = i.Source
+	}
+	if source == "" {
+		source = SourceCNNBrasilID
+	}
+	return source + "\x00" + i.Link
+}
 
 type rss struct {
 	Items []struct {
@@ -56,6 +90,11 @@ type rss struct {
 // deduplicados por link, do mais recente para o mais antigo. Com cat > 0 o feed
 // vem filtrado por categoria.
 func Fetch(ctx context.Context, client *http.Client, cat, pages int) ([]Item, error) {
+	return FetchSource(ctx, client, CNNBrasilSource, cat, pages)
+}
+
+// FetchSource busca páginas de uma fonte RSS e devolve os itens deduplicados.
+func FetchSource(ctx context.Context, client *http.Client, source Source, cat, pages int) ([]Item, error) {
 	if pages < 1 {
 		pages = 1
 	}
@@ -64,7 +103,7 @@ func Fetch(ctx context.Context, client *http.Client, cat, pages int) ([]Item, er
 	var all []Item
 
 	for page := 1; page <= pages; page++ {
-		items, err := fetchPage(ctx, client, cat, page)
+		items, err := fetchPage(ctx, client, source, cat, page)
 		if err != nil {
 			// Uma página posterior que falha não invalida o que já veio.
 			if len(all) > 0 {
@@ -88,7 +127,7 @@ func Fetch(ctx context.Context, client *http.Client, cat, pages int) ([]Item, er
 	return all, nil
 }
 
-func fetchPage(ctx context.Context, client *http.Client, cat, page int) ([]Item, error) {
+func fetchPage(ctx context.Context, client *http.Client, source Source, cat, page int) ([]Item, error) {
 	q := url.Values{}
 	if cat > 0 {
 		q.Set("cat", strconv.Itoa(cat))
@@ -96,7 +135,7 @@ func fetchPage(ctx context.Context, client *http.Client, cat, page int) ([]Item,
 	if page > 1 {
 		q.Set("paged", strconv.Itoa(page))
 	}
-	u := FeedURL
+	u := source.FeedURL
 	if len(q) > 0 {
 		u += "?" + q.Encode()
 	}
@@ -117,11 +156,16 @@ func fetchPage(ctx context.Context, client *http.Client, cat, page int) ([]Item,
 	if resp.StatusCode != http.StatusOK {
 		return nil, fmt.Errorf("feed respondeu %s", resp.Status)
 	}
-	return Parse(resp.Body)
+	return ParseSource(resp.Body, source)
 }
 
 // Parse decodifica um feed RSS da CNN Brasil.
 func Parse(r io.Reader) ([]Item, error) {
+	return ParseSource(r, CNNBrasilSource)
+}
+
+// ParseSource decodifica um feed RSS e associa a fonte a cada item.
+func ParseSource(r io.Reader, source Source) ([]Item, error) {
 	var doc rss
 	if err := xml.NewDecoder(r).Decode(&doc); err != nil {
 		return nil, fmt.Errorf("decodificando RSS: %w", err)
@@ -135,6 +179,8 @@ func Parse(r io.Reader) ([]Item, error) {
 		}
 		cats := cleanCategories(raw.Categories)
 		outItems = append(outItems, Item{
+			Source:     source.Name,
+			SourceID:   source.key(),
 			Title:      strings.TrimSpace(raw.Title),
 			Link:       link,
 			Author:     strings.TrimSpace(raw.Creator),
