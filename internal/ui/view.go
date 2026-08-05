@@ -298,9 +298,12 @@ func (m Model) viewStatus() string {
 	case m.statusText != "":
 		left = okStyle.Render("✓ " + m.statusText)
 	case m.mode == modePanel:
-		// As dicas seguem a linha sob o cursor: `espaço` alterna em qualquer uma,
-		// mas só numa seção ele mostra e oculta, e só ali J/K reordenam.
-		if m.panelRows()[m.panel.cursor].section != nil {
+		// As dicas seguem a linha sob o cursor: fontes RSS são leitura; seções
+		// podem ser ocultadas/reordenadas; preferências escalares alternam.
+		row := m.panelRows()[m.panel.cursor]
+		if row.sourceHealth != nil {
+			left = hintStyle.Render("saúde do RSS · somente leitura")
+		} else if row.section != nil {
 			left = m.hints(avail, "espaço", "ver/ocultar", "J/K", "reordenar",
 				"j/k", "mover", "esc", "fechar", "?", "ajuda")
 		} else {
