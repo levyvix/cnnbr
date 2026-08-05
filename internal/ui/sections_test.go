@@ -114,8 +114,8 @@ func TestHiddenSectionsAreSkippedWhenCycling(t *testing.T) {
 		{Slug: "eleicoes", Visible: false},
 	})
 	end = press(t, end, repeat("h", 1)...) // da primeira visível para trás
-	if got := activeSlug(end); got != "saude" {
-		t.Errorf("h da primeira visível levou a %q, quero saude — eleicoes está oculta", got)
+	if got := activeSlug(end); got != "manchetes" {
+		t.Errorf("h da primeira visível levou a %q, quero manchetes — home está oculta", got)
 	}
 	if got := activeSlug(press(t, end, "l")); got != "politica" {
 		t.Errorf("l da última visível levou a %q, quero politica — home está oculta", got)
@@ -131,8 +131,8 @@ func TestDigitsNumberTheVisibleList(t *testing.T) {
 	if got := activeSlug(press(t, m, "2")); got != "nacional" {
 		t.Errorf("2 levou a %q, quero nacional — 2 é sempre a segunda aba da barra", got)
 	}
-	if got := activeSlug(press(t, m, "0")); got != "home" {
-		t.Errorf("0 com nove abas visíveis levou a %q, quero não fazer nada", got)
+	if got := activeSlug(press(t, m, "0")); got != "manchetes" {
+		t.Errorf("0 levou a %q, quero manchetes — é a décima seção visível", got)
 	}
 }
 

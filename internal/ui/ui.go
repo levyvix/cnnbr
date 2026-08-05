@@ -57,6 +57,7 @@ type tab struct {
 	hidden    bool
 	section   feed.Section
 	items     []feed.Item
+	groups    []feed.CoverageGroup
 	view      []int // índices de items visíveis, após filtro
 	cursor    int   // posição em view
 	top       int   // primeiro item visível na tela
@@ -254,6 +255,7 @@ func (m Model) handleFeed(res feed.Result) (tea.Model, tea.Cmd) {
 	}
 
 	t.items = res.Items
+	t.groups = feed.CoverageGroups(res.Items, feed.AllSources())
 	t.fetchedAt = res.FetchedAt
 	t.fromCache = res.FromCache
 	t.loaded = true
@@ -435,8 +437,7 @@ func (m Model) handleListKey(key string) (tea.Model, tea.Cmd) {
 		if it, ok := m.selected(); ok {
 			t := m.cur()
 			m.readingIdx = t.view[t.cursor]
-			m.blocks = article.Parse(it.HTML)
-			m.cfg.Store.MarkRead(it.ID())
+			m.openReading(it)
 			m.mode = modeReader
 			m.reader = viewport.New(m.width, m.bodyHeight())
 			m.reader.SetContent(m.renderArticle())
@@ -452,7 +453,16 @@ func (m Model) handleListKey(key string) (tea.Model, tea.Cmd) {
 			return m, copyToClipboard(it.Link)
 		}
 	case "f":
-		if it, ok := m.selected(); ok {
+		if group, ok := m.activeCoverageGroup(); ok {
+			saved := m.toggleGroupSaved(group)
+			if m.onlySaved {
+				m.rebuildAllViews()
+			}
+			if saved {
+				return m, status("salva nos favoritos")
+			}
+			return m, status("removida dos favoritos")
+		} else if it, ok := m.selected(); ok {
 			saved := m.cfg.Store.ToggleSaved(it.ID())
 			if m.onlySaved {
 				m.rebuildAllViews()
@@ -463,7 +473,12 @@ func (m Model) handleListKey(key string) (tea.Model, tea.Cmd) {
 			return m, status("removida dos favoritos")
 		}
 	case "m":
-		if it, ok := m.selected(); ok {
+		if group, ok := m.activeCoverageGroup(); ok {
+			if m.toggleGroupRead(group) {
+				return m, status("marcada como lida")
+			}
+			return m, status("marcada como não lida")
+		} else if it, ok := m.selected(); ok {
 			if m.cfg.Store.ToggleRead(it.ID()) {
 				return m, status("marcada como lida")
 			}
@@ -523,7 +538,12 @@ func (m Model) handleReaderKey(key string) (tea.Model, tea.Cmd) {
 	case "y":
 		return m, copyToClipboard(m.reading().Link)
 	case "f":
-		saved := m.cfg.Store.ToggleSaved(m.reading().ID())
+		saved := false
+		if group, ok := m.activeCoverageGroup(); ok {
+			saved = m.toggleGroupSaved(group)
+		} else {
+			saved = m.cfg.Store.ToggleSaved(m.reading().ID())
+		}
 		m.reader.SetContent(m.renderArticle())
 		if saved {
 			return m, status("salva nos favoritos")
@@ -545,8 +565,7 @@ func (m Model) jumpArticle(delta int) (tea.Model, tea.Cmd) {
 	m.clampCursor()
 	m.readingIdx = t.view[t.cursor]
 	it := m.reading()
-	m.blocks = article.Parse(it.HTML)
-	m.cfg.Store.MarkRead(it.ID())
+	m.openReading(it)
 	m.reader.SetContent(m.renderArticle())
 	m.reader.GotoTop()
 	return m, nil
@@ -557,11 +576,59 @@ func (m Model) jumpArticle(delta int) (tea.Model, tea.Cmd) {
 // altera o estado real, que é o que queremos para cursor e conteúdo.
 func (m *Model) cur() *tab { return &m.tabs[m.active] }
 
-func (m Model) reading() feed.Item { return m.tabs[m.active].items[m.readingIdx] }
+func (m Model) reading() feed.Item {
+	t := m.tabs[m.active]
+	if t.section.Slug == feed.HeadlinesSlug && m.readingIdx >= 0 && m.readingIdx < len(t.groups) {
+		group := t.groups[m.readingIdx]
+		if len(group.Items) > 0 {
+			return t.items[group.Items[0]]
+		}
+	}
+	return t.items[m.readingIdx]
+}
+
+func (m Model) activeCoverageGroup() (feed.CoverageGroup, bool) {
+	t := m.tabs[m.active]
+	if t.section.Slug != feed.HeadlinesSlug || len(t.view) == 0 || t.cursor >= len(t.view) {
+		return feed.CoverageGroup{}, false
+	}
+	idx := t.view[t.cursor]
+	if idx < 0 || idx >= len(t.groups) {
+		return feed.CoverageGroup{}, false
+	}
+	return t.groups[idx], true
+}
+
+func (m *Model) openReading(it feed.Item) {
+	if group, ok := m.activeCoverageGroup(); ok {
+		m.blocks = blocksForCoverageGroup(m.tabs[m.active].items, group)
+		m.readingIdx = m.cur().view[m.cur().cursor]
+		for _, idx := range group.Items {
+			m.cfg.Store.MarkRead(m.tabs[m.active].items[idx].ID())
+		}
+		return
+	}
+	m.blocks = article.Parse(it.HTML)
+	m.cfg.Store.MarkRead(it.ID())
+}
 
 // rebuildView recalcula os índices visíveis de uma aba conforme o filtro ativo.
 func (m *Model) rebuildView(idx int) {
 	t := &m.tabs[idx]
+	if t.section.Slug == feed.HeadlinesSlug {
+		t.groups = feed.CoverageGroups(t.items, feed.AllSources())
+		t.view = t.view[:0]
+		for i, group := range t.groups {
+			if m.onlySaved && !m.groupHasSaved(t.items, group) {
+				continue
+			}
+			t.view = append(t.view, i)
+		}
+		if idx == m.active {
+			m.clampCursor()
+		}
+		return
+	}
 	hidden := m.hiddenSlugs(idx)
 	t.view = t.view[:0]
 	for i, it := range t.items {
@@ -579,6 +646,89 @@ func (m *Model) rebuildView(idx int) {
 	if idx == m.active {
 		m.clampCursor()
 	}
+}
+
+func (m Model) groupHasSaved(items []feed.Item, group feed.CoverageGroup) bool {
+	for _, idx := range group.Items {
+		if idx >= 0 && idx < len(items) && m.cfg.Store.IsSaved(items[idx].ID()) {
+			return true
+		}
+	}
+	return false
+}
+
+func (m Model) groupAllRead(group feed.CoverageGroup) bool {
+	for _, idx := range group.Items {
+		if idx < 0 || idx >= len(m.tabs[m.active].items) {
+			continue
+		}
+		if !m.cfg.Store.IsRead(m.tabs[m.active].items[idx].ID()) {
+			return false
+		}
+	}
+	return len(group.Items) > 0
+}
+
+func (m Model) groupAnySaved(group feed.CoverageGroup) bool {
+	for _, idx := range group.Items {
+		if idx < 0 || idx >= len(m.tabs[m.active].items) {
+			continue
+		}
+		if m.cfg.Store.IsSaved(m.tabs[m.active].items[idx].ID()) {
+			return true
+		}
+	}
+	return false
+}
+
+func (m Model) toggleGroupSaved(group feed.CoverageGroup) bool {
+	save := !m.groupAnySaved(group)
+	for _, idx := range group.Items {
+		if idx < 0 || idx >= len(m.tabs[m.active].items) {
+			continue
+		}
+		item := m.tabs[m.active].items[idx]
+		if m.cfg.Store.IsSaved(item.ID()) != save {
+			m.cfg.Store.ToggleSaved(item.ID())
+		}
+	}
+	return save
+}
+
+func (m Model) toggleGroupRead(group feed.CoverageGroup) bool {
+	read := !m.groupAllRead(group)
+	for _, idx := range group.Items {
+		if idx < 0 || idx >= len(m.tabs[m.active].items) {
+			continue
+		}
+		item := m.tabs[m.active].items[idx]
+		if m.cfg.Store.IsRead(item.ID()) != read {
+			m.cfg.Store.ToggleRead(item.ID())
+		}
+	}
+	return read
+}
+
+func blocksForCoverageGroup(items []feed.Item, group feed.CoverageGroup) []article.Block {
+	var blocks []article.Block
+	for _, idx := range group.Items {
+		if idx < 0 || idx >= len(items) {
+			continue
+		}
+		item := items[idx]
+		source := item.Source
+		if source == "" {
+			source = feed.SourceCNNBrasil
+		}
+		blocks = append(blocks, article.Block{Kind: article.Heading, Text: source})
+		blocks = append(blocks, article.Block{Kind: article.Subheading, Text: item.Title})
+		body := article.Parse(item.HTML)
+		if len(body) == 0 && item.Summary != "" {
+			body = []article.Block{{Kind: article.Paragraph, Text: item.Summary}}
+		}
+		blocks = append(blocks, body...)
+	}
+	return blocks
 }
 
 // hiddenSlugs são os slugs das seções ocultas, e só valem para o feed geral: a
@@ -662,6 +812,13 @@ func (m Model) selected() (feed.Item, bool) {
 	t := m.tabs[m.active]
 	if len(t.view) == 0 || t.cursor >= len(t.view) {
 		return feed.Item{}, false
+	}
+	if t.section.Slug == feed.HeadlinesSlug {
+		group := t.groups[t.view[t.cursor]]
+		if len(group.Items) == 0 {
+			return feed.Item{}, false
+		}
+		return t.items[group.Items[0]], true
 	}
 	return t.items[t.view[t.cursor]], true
 }

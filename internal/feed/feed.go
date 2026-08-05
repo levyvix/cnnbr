@@ -253,7 +253,7 @@ func sourceUsesCNNCategories(source Source) bool {
 // aceita tudo; seções específicas só aceitam matérias classificadas com
 // confiança para aquele slug.
 func ItemsForSection(section Section, items []Item) []Item {
-	if section.Cat == 0 {
+	if section.Cat == 0 || section.Slug == HeadlinesSlug {
 		return items
 	}
 	out := make([]Item, 0, len(items))

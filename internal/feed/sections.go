@@ -12,6 +12,8 @@ type Section struct {
 	Cat  int    // ID da categoria no WordPress; 0 = feed geral
 }
 
+const DerivedSectionCat = -1
+
 // Sections são as abas exibidas, na ordem. Os IDs vêm de
 // /wp-json/wp/v2/categories?parent=0 — as categorias raiz da CNN.
 var Sections = []Section{
@@ -25,4 +27,5 @@ var Sections = []Section{
 	{Slug: "tecnologia", Name: "Tecnologia", Cat: 1930},
 	{Slug: "saude", Name: "Saúde", Cat: 1438},
 	{Slug: "eleicoes", Name: "Eleições", Cat: 55743},
+	{Slug: HeadlinesSlug, Name: "Manchetes", Cat: DerivedSectionCat},
 }

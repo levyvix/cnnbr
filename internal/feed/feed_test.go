@@ -64,7 +64,16 @@ func TestSections(t *testing.T) {
 			}
 			continue
 		}
-		if s.Cat <= 0 {
+		if s.Cat == DerivedSectionCat {
+			if s.Slug != HeadlinesSlug {
+				t.Errorf("seção %s tem categoria derivada inesperada: %d", s.Slug, s.Cat)
+			}
+			continue
+		}
+		if s.Cat < 0 {
+			t.Errorf("seção %s tem categoria inválida: %d", s.Slug, s.Cat)
+		}
+		if s.Cat == 0 {
 			t.Errorf("seção %s sem ID de categoria", s.Slug)
 		}
 		if cats[s.Cat] {
