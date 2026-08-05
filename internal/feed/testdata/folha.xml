@@ -1,0 +1,14 @@
+<?xml version="1.0" encoding="ISO-8859-1"?>
+<rss version="2.0" xmlns:content="http://purl.org/rss/1.0/modules/content/" xmlns:dc="http://purl.org/dc/elements/1.1/">
+  <channel>
+    <title>Folha de S.Paulo</title>
+    <item>
+      <title>Folha: notícia de teste</title>
+      <link>https://www1.folha.uol.com.br/poder/2026/08/05/noticia-de-teste.shtml</link>
+      <dc:creator>Repórter da Folha</dc:creator>
+      <description><![CDATA[Resumo da Folha.]]></description>
+      <pubDate>Wed, 05 Aug 2026 11:00:00 -0300</pubDate>
+      <content:encoded><![CDATA[<p>Corpo da Folha.</p>]]></content:encoded>
+    </item>
+  </channel>
+</rss>

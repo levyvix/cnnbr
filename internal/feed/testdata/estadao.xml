@@ -1,0 +1,14 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<rss version="2.0" xmlns:content="http://purl.org/rss/1.0/modules/content/" xmlns:dc="http://purl.org/dc/elements/1.1/">
+  <channel>
+    <title>Estadão</title>
+    <item>
+      <title>Estadão: notícia de teste</title>
+      <link>https://www.estadao.com.br/politica/2026/08/05/noticia-de-teste/</link>
+      <dc:creator>Repórter do Estadão</dc:creator>
+      <description><![CDATA[Resumo do Estadão.]]></description>
+      <pubDate>Wed, 05 Aug 2026 10:00:00 -0300</pubDate>
+      <content:encoded><![CDATA[<p>Corpo do Estadão.</p>]]></content:encoded>
+    </item>
+  </channel>
+</rss>
