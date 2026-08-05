@@ -8,6 +8,8 @@ import (
 	"net/http"
 	"os"
 	"path/filepath"
+	"sort"
+	"sync"
 	"time"
 )
 
@@ -113,6 +115,55 @@ type Result struct {
 // volta no cache.
 func Get(ctx context.Context, client *http.Client, c Cache, s Section, pages int, force bool) Result {
 	return GetSource(ctx, client, c, CNNBrasilSource, s, pages, force)
+}
+
+// GetSources carrega em paralelo as fontes de uma seção e mistura os itens em
+// ordem de publicação. Uma fonte sem resposta não invalida as outras; o erro
+// só chega ao chamador quando nenhuma fonte conseguiu devolver itens.
+func GetSources(ctx context.Context, client *http.Client, c Cache, sources []Source, s Section, pages int, force bool) Result {
+	if len(sources) == 0 {
+		return Result{Section: s}
+	}
+
+	results := make(chan Result, len(sources))
+	var wg sync.WaitGroup
+	for _, source := range sources {
+		wg.Add(1)
+		go func(source Source) {
+			defer wg.Done()
+			results <- GetSource(ctx, client, c, source, s, pages, force)
+		}(source)
+	}
+	wg.Wait()
+	close(results)
+
+	var (
+		items     []Item
+		firstErr  error
+		fetchedAt time.Time
+		fromCache = true
+	)
+	for result := range results {
+		items = append(items, result.Items...)
+		if result.Err != nil && firstErr == nil {
+			firstErr = result.Err
+		}
+		if result.FetchedAt.After(fetchedAt) {
+			fetchedAt = result.FetchedAt
+		}
+		if !result.FromCache {
+			fromCache = false
+		}
+	}
+
+	sort.SliceStable(items, func(i, j int) bool {
+		return items[i].Published.After(items[j].Published)
+	})
+	result := Result{Section: s, Items: items, FetchedAt: fetchedAt, FromCache: fromCache}
+	if len(items) == 0 {
+		result.Err = firstErr
+	}
+	return result
 }
 
 // GetSource devolve o feed de uma fonte e seção, preferindo o cache enquanto

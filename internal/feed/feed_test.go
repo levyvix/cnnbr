@@ -228,6 +228,36 @@ func TestParseAssignsSource(t *testing.T) {
 	}
 }
 
+func TestParseG1Feed(t *testing.T) {
+	f, err := os.Open("testdata/g1.xml")
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { _ = f.Close() })
+
+	items, err := ParseSource(f, G1Source)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(items) != 2 {
+		t.Fatalf("Parse devolveu %d itens, quero 2", len(items))
+	}
+
+	withBody, withoutBody := items[0], items[1]
+	if withBody.Source != SourceG1 || withBody.SourceID != SourceG1ID {
+		t.Errorf("fonte G1 = %#v, quero nome e ID estáveis", withBody)
+	}
+	if withBody.Summary == "" || withBody.HTML == "" {
+		t.Errorf("matéria G1 com corpo perdeu resumo ou HTML: %#v", withBody)
+	}
+	if withoutBody.HTML != "" {
+		t.Errorf("matéria G1 sem corpo ganhou HTML: %q", withoutBody.HTML)
+	}
+	if withoutBody.Published.IsZero() {
+		t.Error("matéria G1 sem corpo perdeu a data")
+	}
+}
+
 func TestFetchSourceUsesSourceFeed(t *testing.T) {
 	server := httptest.NewServer(httpHandler(`<rss><channel><item>
 		<title>Uma notícia externa</title>
